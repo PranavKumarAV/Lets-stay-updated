@@ -1,23 +1,45 @@
 {
-  "include": ["client/src/**/*", "shared/**/*", "server/**/*"],
-  "exclude": ["node_modules", "build", "dist", "**/*.test.ts"],
   "compilerOptions": {
     "incremental": true,
     "tsBuildInfoFile": "./node_modules/typescript/tsbuildinfo",
-    "noEmit": true,
+
+    // Module system & resolution
     "module": "ESNext",
-    "strict": true,
-    "lib": ["esnext", "dom", "dom.iterable"],
+    "moduleResolution": "bundler", // works well with Vite
+
+    // JSX & frontend
     "jsx": "preserve",
+    "lib": ["esnext", "dom", "dom.iterable"],
+
+    // Type system settings
+    "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "allowImportingTsExtensions": true,
-    "moduleResolution": "bundler",
+
+    // Base path & aliases
     "baseUrl": ".",
-    "types": ["node", "vite/client"],
     "paths": {
       "@/*": ["./client/src/*"],
       "@shared/*": ["./shared/*"]
-    }
-  }
+    },
+
+    // Ensure node + vite types are available
+    "types": ["node", "vite/client"],
+
+    // We don't emit from tsc – Vite & esbuild handle builds
+    "noEmit": true
+  },
+  "include": [
+    "client",
+    "shared",
+    "server",
+    "vite.config.ts" // <– include this explicitly
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "build",
+    "**/*.test.ts"
+  ]
 }
