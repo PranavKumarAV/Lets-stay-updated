@@ -1,6 +1,6 @@
-# Deployment Guide for Render.com
+# Deployment Guide for "Let's Stay Updated"
 
-This guide will help you deploy the AI-Powered News Aggregator on Render.com.
+This guide will help you deploy the "Let's Stay Updated" news aggregator on Render.com.
 
 ## Prerequisites
 
@@ -13,7 +13,7 @@ This guide will help you deploy the AI-Powered News Aggregator on Render.com.
 
 ### 1. Upload to GitHub
 
-1. Create a new repository on GitHub
+1. Create a new repository on GitHub named "Lets-stay-updated"
 2. Upload all the files from this folder to your GitHub repository
 3. Make sure all files are committed and pushed
 
@@ -22,8 +22,8 @@ This guide will help you deploy the AI-Powered News Aggregator on Render.com.
 1. Go to [Render.com](https://render.com) and sign in
 2. Click "New +" → "PostgreSQL"
 3. Configure your database:
-   - **Name**: `news-aggregator-db`
-   - **Database**: `news_aggregator`
+   - **Name**: `lets-stay-updated-db`
+   - **Database**: `lets_stay_updated`
    - **User**: `news_user` (or any name you prefer)
    - **Region**: Choose closest to your users
    - **Plan**: Free (or paid for better performance)
@@ -51,7 +51,7 @@ This guide will help you deploy the AI-Powered News Aggregator on Render.com.
 3. Configure the service:
 
    **Basic Settings:**
-   - **Name**: `news-aggregator`
+   - **Name**: `lets-stay-updated`
    - **Region**: Same as your database
    - **Branch**: `main` (or your default branch)
    - **Root Directory**: Leave empty
@@ -88,7 +88,7 @@ This guide will help you deploy the AI-Powered News Aggregator on Render.com.
 
 1. Render will automatically start building and deploying
 2. Wait for the build to complete (usually 2-5 minutes)
-3. Once deployed, you'll get a URL like: `https://your-app-name.onrender.com`
+3. Once deployed, you'll get a URL like: `https://lets-stay-updated.onrender.com`
 
 ## Cost Comparison
 

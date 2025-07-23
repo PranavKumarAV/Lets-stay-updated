@@ -1,4 +1,4 @@
-# AI-Powered News Aggregator
+# Let's Stay Updated - AI News Aggregator
 
 An intelligent news curation website that uses AI to select sources and rank articles based on relevance and popularity.
 
@@ -24,8 +24,8 @@ An intelligent news curation website that uses AI to select sources and rank art
 ### 1. Clone and Install
 
 ```bash
-git clone <your-repo-url>
-cd news-aggregator
+git clone https://github.com/YOUR_USERNAME/Lets-stay-updated.git
+cd Lets-stay-updated
 npm install
 ```
 
