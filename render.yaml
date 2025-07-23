@@ -1,20 +1,18 @@
 services:
   - type: web
-    name: lets-stay-updated
-    env: node
+    name: news-curation-app
+    env: python
     plan: free
-    buildCommand: npm install && npm run build
-    startCommand: npm start
+    buildCommand: |
+      cd client && npm install && npm run build &&
+      cd ../backend && pip install -r requirements.txt
+    startCommand: cd backend && python main.py
     healthCheckPath: /health
     envVars:
-      - key: NODE_ENV
+      - key: ENVIRONMENT
         value: production
-      - key: DATABASE_URL
-        sync: false             
       - key: GROQ_API_KEY
-        sync: false 
-      - key: LLM_PROVIDER
-        value: groq
+        sync: false
       - key: PORT
         value: 5000
     autoDeploy: false
