@@ -1,33 +1,31 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { openAIService } from "./services/openai";
+import { groqService } from "./services/groq"; 
 import { generateNewsRequestSchema, type GenerateNewsRequest, type NewsResponse } from "@shared/schema";
 import { z } from "zod";
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Generate curated news feed
   app.post("/api/news/generate", async (req, res) => {
     try {
-      // Handle both articleCount and article_count for compatibility
       const requestBody = {
         ...req.body,
         articleCount: req.body.articleCount || req.body.article_count || 10
       };
       console.log("Processing request:", requestBody);
-      
+
       const validatedData = generateNewsRequestSchema.parse(requestBody);
       const { region, country, topics, articleCount, excludedSources = [] } = validatedData;
 
-      // Step 1: AI selects best news sources
-      const selectedSources = await openAIService.selectNewsSources(topics, region, excludedSources);
-      console.log('AI selected sources:', selectedSources.map(s => s.name));
+      // Step 1: Groq selects best news sources
+      const selectedSources = await groqService.selectNewsSources(topics, region, excludedSources);
+      console.log('Groq selected sources:', selectedSources.map(s => s.name));
 
       // Step 2: Simulate fetching articles from selected sources
       const mockArticles = await simulateFetchingArticles(topics, selectedSources, articleCount);
 
-      // Step 3: AI analyzes and ranks articles
-      const rankedArticles = await openAIService.analyzeAndRankArticles(
+      // Step 3: Groq analyzes and ranks articles
+      const rankedArticles = await groqService.analyzeAndRankArticles(
         mockArticles,
         topics,
         { region, country, excludedSources }
@@ -69,11 +67,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get available news sources for topics
   app.post("/api/news/sources", async (req, res) => {
     try {
       const { topics, region, excludedSources } = req.body;
-      const sources = await openAIService.selectNewsSources(topics, region, excludedSources);
+      const sources = await groqService.selectNewsSources(topics, region, excludedSources);
       res.json({ sources });
     } catch (error) {
       console.error('Error getting sources:', error);
@@ -81,11 +78,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get cached articles
   app.get("/api/news/articles", async (req, res) => {
     try {
       const { topics, source, minAiScore, limit } = req.query;
-      
+
       const filters: any = {};
       if (topics) filters.topics = (topics as string).split(',');
       if (source) filters.source = source;
@@ -100,7 +96,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Clear old articles (maintenance endpoint)
   app.post("/api/news/cleanup", async (req, res) => {
     try {
       await storage.clearOldArticles();

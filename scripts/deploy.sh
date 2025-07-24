@@ -4,8 +4,8 @@
 echo "Starting deployment process..."
 
 # Check if required environment variables are set
-if [ -z "$OPENAI_API_KEY" ]; then
-    echo "Error: OPENAI_API_KEY environment variable is required"
+if [ -z "$GROQ_API_KEY" ]; then
+    echo "Error: GROQ_API_KEY environment variable is required"
     exit 1
 fi
 
