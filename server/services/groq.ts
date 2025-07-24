@@ -41,7 +41,7 @@ async function callGroqChat(params: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: params.model ?? "gpt-4o",
+      model: params.model ?? "llama-3.1-70b-versatile",
       messages: params.messages,
     }),
   });
@@ -74,7 +74,7 @@ Return ONLY valid JSON in this format:
 
     try {
       const data: any = await callGroqChat({
-        model: "gpt-4o",
+        model: "llama-3.1-70b-versatile",
         messages: [{ role: "user", content: prompt }],
       });
 
@@ -102,7 +102,7 @@ Return ONLY valid JSON.`;
 
     try {
       const data: any = await callGroqChat({
-        model: "gpt-4o",
+        model: "llama-3.1-70b-versatile",
         messages: [{ role: "user", content: prompt }],
       });
 
@@ -133,7 +133,7 @@ Return ONLY valid JSON.`;
 
     try {
       const data: any = await callGroqChat({
-        model: "gpt-4o",
+        model: "llama-3.1-70b-versatile",
         messages: [{ role: "user", content: prompt }],
       });
 
