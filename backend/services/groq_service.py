@@ -1,3 +1,16 @@
+
+import json
+import re
+
+def extract_json_from_text(text: str):
+    try:
+        json_matches = re.findall(r'{.*?}', text, re.DOTALL)
+        if json_matches:
+            return json.loads(json_matches[0])
+    except json.JSONDecodeError as e:
+        print("extract_json_from_text error:", e)
+    return None
+
 from groq import Groq
 import json
 import logging
