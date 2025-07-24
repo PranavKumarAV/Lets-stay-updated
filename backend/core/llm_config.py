@@ -22,7 +22,7 @@ class LLMManager:
             "name": "Groq",
             "base_url": "https://api.groq.com/openai/v1",
             "models": {
-                "llama-3.1-70b-versatile": {
+                "llama3-70b-8192": {
                     "name": "Llama 3.1 70B",
                     "free_tier": True,
                     "requests_per_minute": 30,
@@ -55,7 +55,7 @@ class LLMManager:
         
         return LLMConfig(
             provider="groq",
-            model="llama-3.1-70b-versatile",
+            model="llama3-70b-8192",
             api_key=key,
             base_url=cls.PROVIDERS["groq"]["base_url"],
             max_tokens=2048,
@@ -66,7 +66,7 @@ class LLMManager:
 
     @classmethod
     def get_config_from_env(cls) -> LLMConfig:
-        model = os.getenv("LLM_MODEL", "llama-3.1-70b-versatile")
+        model = os.getenv("LLM_MODEL", "llama3-70b-8192")
         key = os.getenv("GROQ_API_KEY")
         if not key:
             raise ValueError("Missing GROQ_API_KEY")
