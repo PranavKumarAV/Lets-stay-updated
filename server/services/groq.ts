@@ -30,6 +30,17 @@ export interface AnalyzedArticle {
   };
 }
 
+function extractJsonFromText(text: string): any {
+  try {
+    const match = text.match(/\{[\s\S]*?\}/);
+    if (!match) throw new Error("No JSON found in response");
+    return JSON.parse(match[0]);
+  } catch (err) {
+    console.error("extractJsonFromText error:", err);
+    throw err;
+  }
+}
+
 async function callGroqChat(params: {
   model?: string;
   messages: { role: string; content: string }[];
@@ -80,7 +91,7 @@ Return ONLY valid JSON in this format:
 
       const content = data?.choices?.[0]?.message?.content;
       if (!content) throw new Error("No content in Groq response.");
-      const result = JSON.parse(content);
+      const result = extractJsonFromText(content);
       return result.sources || [];
     } catch (e) {
       console.error("selectNewsSources failed:", e);
@@ -108,7 +119,7 @@ Return ONLY valid JSON.`;
 
       const content = data?.choices?.[0]?.message?.content;
       if (!content) throw new Error("No content in Groq response.");
-      const result = JSON.parse(content);
+      const result = extractJsonFromText(content);
 
       return articles.map((article, i) => {
         const a = result.rankedArticles.find((r: any) => r.originalIndex === i) || {};
