@@ -17,8 +17,6 @@ class Settings(BaseSettings):
 
     # API Keys for providers
     GROQ_API_KEY: Optional[str] = os.getenv("GROQ_API_KEY")
-    OPENAI_API_KEY: Optional[str] = os.getenv("OPENAI_API_KEY")
-    ANTHROPIC_API_KEY: Optional[str] = os.getenv("ANTHROPIC_API_KEY")
 
     # Compatibility with legacy usage
     MAX_TOKENS: int = LLM_MAX_TOKENS
@@ -46,7 +44,7 @@ class Settings(BaseSettings):
 
     @property
     def has_any_llm_key(self) -> bool:
-        return bool(self.GROQ_API_KEY or self.OPENAI_API_KEY or self.ANTHROPIC_API_KEY)
+        return bool(self.GROQ_API_KEYs)
 
     class Config:
         env_file = ".env"
