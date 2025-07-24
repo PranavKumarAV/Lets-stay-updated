@@ -1,7 +1,7 @@
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse
 import os
 import uvicorn
 from contextlib import asynccontextmanager
@@ -17,24 +17,24 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
-    logger.info("Starting up the application...")
+    """Startup and shutdown logic for the FastAPI app."""
+    logger.info("🚀 Starting up the application...")
     await init_db()
     yield
-    # Shutdown
-    logger.info("Shutting down the application...")
+    logger.info("🛑 Shutting down the application...")
 
+# Initialize FastAPI app
 app = FastAPI(
     title="Let's Stay Updated - AI News Curation",
-    description="AI-powered news aggregation and curation platform",
+    description="AI-powered news aggregation and curation platform using Groq",
     version="1.0.0",
     lifespan=lifespan
 )
 
-# CORS middleware
+# CORS middleware (adjust for production security)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure this properly in production
+    allow_origins=["*"],  # 🔒 Replace with specific domains in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -45,20 +45,19 @@ app.add_middleware(
 async def health_check():
     return {"status": "ok", "message": "Service is healthy"}
 
-# Include API routes
+# Mount all API routes
 app.include_router(api_router, prefix="/api")
 
-# Serve static files in production
+# Serve frontend static files if in production mode
 if settings.ENVIRONMENT == "production":
-    # Mount static files
     static_dir = os.path.join(os.path.dirname(__file__), "..", "dist", "public")
+    
     if os.path.exists(static_dir):
         app.mount("/static", StaticFiles(directory=static_dir), name="static")
         
-        # Serve React app for all other routes
         @app.get("/{full_path:path}")
         async def serve_react_app(full_path: str):
-            # Don't serve React app for API routes
+            """Serve index.html for non-API routes (React SPA)"""
             if full_path.startswith("api/"):
                 raise HTTPException(status_code=404, detail="Not found")
             
@@ -67,6 +66,7 @@ if settings.ENVIRONMENT == "production":
                 return FileResponse(index_file)
             raise HTTPException(status_code=404, detail="Not found")
 
+# Dev entry point
 if __name__ == "__main__":
     uvicorn.run(
         "main:app",
