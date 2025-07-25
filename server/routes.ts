@@ -251,7 +251,7 @@ async function fetchArticlesReal(
     Math.ceil(count / Math.max(1, topics.length * selectedSources.length)),
   );
   // Normalize topics for simple keyword matching
-  const topicKeywords = topics.map(t => t.toLowerCase());
+  const topicKeywords = topics.map(t => t.toLowerCase() === 'ai' ? 'artificial intelligence' : t.toLowerCase());
 
   for (const topic of topics) {
     for (const src of selectedSources) {
@@ -300,7 +300,7 @@ async function fetchArticlesReal(
           const title = entry.title || '';
           const description = entry.contentSnippet || entry.content || '';
           const combinedText = `${title} ${description}`.toLowerCase();
-          if (!topicKeywords.some((kw) => combinedText.includes(kw))) {
+          if (!topicKeywords.some((kw) => combinedText.kw.split(' ').every(word => combinedText.includes(word)))) {
             continue;
           }
           articles.push({
