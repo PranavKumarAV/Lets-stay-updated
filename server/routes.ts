@@ -4,6 +4,30 @@ import { storage } from "./storage";
 import { groqService } from "./services/groq"; 
 import { generateNewsRequestSchema, type GenerateNewsRequest, type NewsResponse } from "@shared/schema";
 import { z } from "zod";
+import Parser from "rss-parser";
+import fetch from "node-fetch";
+
+// Mapping of human‑readable source names to NewsAPI source identifiers.  Only
+// sources present in this map will be queried when a NEWS_API_KEY is
+// provided.  You can extend this list with additional providers supported
+// by NewsAPI.org.
+const NEWSAPI_SOURCE_MAP: Record<string, string> = {
+  "Reuters": "reuters",
+  "Associated Press": "associated-press",
+  "BBC News": "bbc-news",
+  "NPR": "npr",
+  "The Guardian": "the-guardian-uk",
+};
+
+// RSS feed URLs for each supported source.  When no API key is configured or
+// NewsAPI fails, headlines will be pulled from these feeds.  Extend this
+// mapping with additional sources as needed.
+const RSS_FEED_MAP: Record<string, string> = {
+  "Reuters": "http://feeds.reuters.com/reuters/topNews",
+  "BBC News": "http://feeds.bbci.co.uk/news/rss.xml",
+  "NPR": "https://feeds.npr.org/1001/rss.xml",
+  "The Guardian": "https://www.theguardian.com/world/rss",
+};
 
 export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/news/generate", async (req, res) => {
@@ -21,12 +45,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const selectedSources = await groqService.selectNewsSources(topics, region, excludedSources);
       console.log('Groq selected sources:', selectedSources.map(s => s.name));
 
-      // Step 2: Simulate fetching articles from selected sources
-      const mockArticles = await simulateFetchingArticles(topics, selectedSources, articleCount);
+      // Step 2: Attempt to fetch real articles via NewsAPI or RSS feeds.
+      // If this returns an empty array, fall back to mock generation.
+      let articlesToAnalyze: any[] = [];
+      try {
+        articlesToAnalyze = await fetchArticlesReal(topics, selectedSources, articleCount);
+      } catch (err) {
+        console.error('Error fetching real articles, falling back to mock:', err);
+      }
+      if (!articlesToAnalyze || articlesToAnalyze.length === 0) {
+        articlesToAnalyze = await simulateFetchingArticles(topics, selectedSources, articleCount);
+      }
 
       // Step 3: Groq analyzes and ranks articles
       const rankedArticles = await groqService.analyzeAndRankArticles(
-        mockArticles,
+        articlesToAnalyze,
         topics,
         { region, country, excludedSources }
       );
@@ -214,4 +247,110 @@ function generateMetadata(source: string) {
       views: Math.floor(Math.random() * 25000) + 500,
     };
   }
+}
+
+/**
+ * Fetch real news articles using either the NewsAPI.org service or RSS feeds.
+ * If the environment variable `NEWS_API_KEY` is defined, the function will
+ * prefer NewsAPI for supported sources; otherwise it will fall back to RSS.
+ * When neither real data source yields results, it will return an empty array
+ * so the caller can choose to generate mock articles.
+ *
+ * @param topics List of user topics
+ * @param selectedSources List of selected source objects from Groq
+ * @param count Number of articles requested by the user
+ */
+async function fetchArticlesReal(
+  topics: string[],
+  selectedSources: any[],
+  count: number,
+): Promise<any[]> {
+  const apiKey = process.env.NEWS_API_KEY;
+  const articles: any[] = [];
+  const parser = new Parser();
+  const maxPerSource = Math.max(
+    1,
+    Math.ceil(count / Math.max(1, topics.length * selectedSources.length)),
+  );
+  // Normalize topics for simple keyword matching
+  const topicKeywords = topics.map(t => t.toLowerCase());
+
+  for (const topic of topics) {
+    for (const src of selectedSources) {
+      const name = src.name;
+      // Prefer NewsAPI if an API key is provided and the source is supported
+      if (apiKey && NEWSAPI_SOURCE_MAP[name]) {
+        try {
+          const sourceId = NEWSAPI_SOURCE_MAP[name];
+          const url =
+            `https://newsapi.org/v2/everything` +
+            `?q=${encodeURIComponent(topic)}` +
+            `&sources=${encodeURIComponent(sourceId)}` +
+            `&pageSize=${maxPerSource}` +
+            `&sortBy=publishedAt&apiKey=${apiKey}`;
+          const resp = await fetch(url);
+          if (resp.ok) {
+            const data = (await resp.json()) as any;
+            for (const item of data.articles || []) {
+              // Truncate description/content to reduce token usage
+              const summary =
+                (item.description || item.content || "").slice(0, 200);
+              articles.push({
+                title: item.title || "",
+                content: summary,
+                url: item.url || "",
+                source: name,
+                publishedAt: item.publishedAt
+                  ? new Date(item.publishedAt)
+                  : new Date(),
+                metadata: {
+                  author: item.author,
+                  source_name: item.source?.name,
+                },
+              });
+            }
+            continue; // Skip RSS if NewsAPI succeeded for this source
+          } else {
+            console.warn(
+              `NewsAPI responded with status ${resp.status} for ${name}`,
+            );
+          }
+        } catch (err) {
+          console.error(`Error fetching NewsAPI for ${name}:`, err);
+        }
+      }
+      // If no API key or unsupported source, try RSS
+      const feedUrl = RSS_FEED_MAP[name];
+      if (!feedUrl) continue;
+      try {
+        const feed = await parser.parseURL(feedUrl);
+        for (const entry of feed.items.slice(0, maxPerSource * 2)) {
+          const title = entry.title || "";
+          const description = entry.contentSnippet || entry.content || "";
+          const combinedText = `${title} ${description}`.toLowerCase();
+          if (!topicKeywords.some(kw => combinedText.includes(kw))) {
+            continue;
+          }
+          articles.push({
+            title,
+            content: description.slice(0, 200),
+            url: entry.link || "",
+            source: name,
+            publishedAt: entry.isoDate
+              ? new Date(entry.isoDate)
+              : new Date(),
+            metadata: {
+              rss: true,
+            },
+          });
+        }
+      } catch (err) {
+        console.error(`Error parsing RSS for ${name}:`, err);
+      }
+    }
+  }
+  // Sort by published date descending
+  articles.sort((a, b) => (b.publishedAt as any) - (a.publishedAt as any));
+  // Return more articles than requested so the AI can filter
+  return articles.slice(0, count * 2);
 }
