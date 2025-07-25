@@ -94,7 +94,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { topics, source, minAiScore, limit } = req.query;
 
       const filters: any = {};
-      if (topics) filters.topics = (topics as string).split(',');
+      if (topics && Array.isArray(topics)) filters.topics = topics;
       if (source) filters.source = source;
       if (minAiScore) filters.minAiScore = parseInt(minAiScore as string);
       if (limit) filters.limit = parseInt(limit as string);
@@ -300,7 +300,7 @@ async function fetchArticlesReal(
           const title = entry.title || '';
           const description = entry.contentSnippet || entry.content || '';
           const combinedText = `${title} ${description}`.toLowerCase();
-          if (!topicKeywords.some((kw) => combinedText.kw.split(' ').every(word => combinedText.includes(word)))) {
+          if (!topicKeywords.some((kw) => kw.split(' ').every(word => combinedText.includes(word)))) {
             continue;
           }
           articles.push({
