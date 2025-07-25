@@ -2,14 +2,24 @@
 import json
 import re
 
+# Import the minimal JSON repair utility from the local utils.  This helper
+# cleans up common issues such as single quotes and trailing commas before
+# passing the string to ``json.loads``.  By using this helper instead of
+# ad‑hoc regex extraction we ensure consistent handling of malformed
+# language‑model outputs.
+from ..utils import json_repair
+
 def extract_json_from_text(text: str):
+    """Deprecated: use ``json_repair.loads`` instead.
+
+    This function remains for backward compatibility but now delegates
+    directly to ``json_repair.loads``, which repairs and decodes the
+    provided string.
+    """
     try:
-        json_matches = re.findall(r'{.*?}', text, re.DOTALL)
-        if json_matches:
-            return json.loads(json_matches[0])
-    except json.JSONDecodeError as e:
-        print("extract_json_from_text error:", e)
-    return None
+        return json_repair.loads(text)
+    except Exception:
+        return None
 
 from groq import Groq
 import json
@@ -70,9 +80,10 @@ Return exactly 8-12 diverse sources as JSON:
                 max_tokens=settings.MAX_TOKENS,
                 temperature=settings.TEMPERATURE
             )
-            
+
             content = response.choices[0].message.content
-            result = json.loads(content)
+            # Repair and decode the JSON response using json_repair
+            result = json_repair.loads(content)
             sources = result.get('sources', [])
             
             # Filter out excluded sources
@@ -136,9 +147,10 @@ Return JSON format:
                     max_tokens=settings.MAX_TOKENS,
                     temperature=settings.TEMPERATURE
                 )
-                
+
                 content = response.choices[0].message.content
-                result = json.loads(content)
+                # Repair and decode the JSON returned by the model
+                result = json_repair.loads(content)
                 
                 # Apply AI scores to batch
                 for analysis in result.get('rankedArticles', []):

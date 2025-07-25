@@ -11,6 +11,9 @@ import aiohttp
 # a relative import ensures the module can be resolved whether the
 # package is installed or executed directly.
 from ..core.llm_config import LLMManager
+# Import the json_repair module.  We use ``json_repair.loads`` to
+# repair and decode JSON responses from the LLM.
+from ..utils import json_repair
 
 logger = logging.getLogger(__name__)
 
@@ -46,59 +49,6 @@ class LLMService:
     # ------------------------------------------------------------------
     # Internal utilities
     # ------------------------------------------------------------------
-    def _parse_json_content(self, content: str) -> Dict[str, Any]:
-        """
-        Attempt to parse the LLM's response content into a Python object.
-
-        The Groq/OpenAI API may sometimes return malformed JSON when the
-        underlying language model produces extra text (such as a leading
-        explanation or trailing comments) or uses single quotes instead
-        of double quotes.  To make the backend resilient, this helper
-        attempts multiple strategies to repair and decode the JSON:
-
-        1. Try a direct ``json.loads`` on the raw string.
-        2. Replace single quotes with double quotes and remove trailing
-           commas before closing braces/brackets, then retry ``json.loads``.
-        3. Fallback to ``ast.literal_eval`` which can parse Python-like
-           dictionaries (but not arbitrary expressions).
-        4. Use a regex to extract the first JSON object or array from
-           the text and decode it if possible.
-        5. As a last resort, raise a ``ValueError`` so the caller can
-           invoke a fallback code path.
-        """
-        import ast
-        import re
-        # First attempt: direct JSON parsing
-        try:
-            return json.loads(content)
-        except json.JSONDecodeError:
-            pass
-        # Second attempt: simple repairs (single quotes -> double quotes,
-        # remove trailing commas)
-        repaired = content
-        # Normalize different quote styles by converting single quotes to double quotes.
-        # This is naive but often sufficient for model outputs.
-        repaired = repaired.replace("'", '"')
-        # Remove any trailing comma before a closing brace or bracket.
-        repaired = re.sub(r",\s*([}\]])", r"\1", repaired)
-        try:
-            return json.loads(repaired)
-        except json.JSONDecodeError:
-            pass
-        # Third attempt: Python literal eval for JSON-like structures
-        try:
-            return ast.literal_eval(content)
-        except Exception:
-            pass
-        # Fourth attempt: find the first JSON object or array in the text
-        json_matches = re.findall(r"(\{.*?\}|\[.*?\])", content, re.DOTALL)
-        for match in json_matches:
-            try:
-                return json.loads(match)
-            except Exception:
-                continue
-        # If all parsing attempts fail, raise an error
-        raise ValueError("Unable to parse JSON content from LLM response")
     
     async def _get_session(self) -> aiohttp.ClientSession:
         if self.session is None or self.session.closed:
@@ -198,8 +148,12 @@ class LLMService:
         try:
             response = await self._make_request(messages, json_mode=True)
             content = response["choices"][0]["message"]["content"]
+
             try:
-                result = self._parse_json_content(content)
+                # Repair and decode the JSON response using json_repair.  This
+                # helper fixes common issues (single quotes, trailing commas)
+                # and then decodes the result into a Python object.
+                result = json_repair.loads(content)
             except Exception as parse_err:
                 logger.warning(
                     f"Failed to parse LLM source recommendation response as JSON: {parse_err}.\n"
@@ -299,7 +253,8 @@ class LLMService:
             )
             content = response["choices"][0]["message"]["content"]
             try:
-                result = self._parse_json_content(content)
+                # Repair and decode the JSON response using json_repair
+                result = json_repair.loads(content)
             except Exception as parse_err:
                 logger.warning(
                     f"Failed to parse LLM article ranking response as JSON: {parse_err}.\n"

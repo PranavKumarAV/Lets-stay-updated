@@ -1,6 +1,46 @@
 // server/services/groq.ts
 import fetch from "node-fetch";
 
+/*
+ * Simple JSON repair helper for Node.js.  This function attempts to
+ * correct common formatting issues in language‑model outputs before
+ * parsing them with ``JSON.parse``.  It performs a few basic
+ * transformations:
+ *   1. Replaces all single quotes with double quotes
+ *   2. Removes trailing commas before closing braces or brackets
+ *
+ * If you install the official ``jsonrepair`` package in your project,
+ * you can import and use it here instead of this helper to handle
+ * more complex cases.  The name ``jsonrepair`` is kept to make
+ * migration trivial.
+ */
+function jsonrepair(text: string): string {
+  if (typeof text !== 'string') return text as any;
+  let repaired = text;
+  // Replace single quotes with double quotes
+  repaired = repaired.replace(/'/g, '"');
+  // Remove trailing commas before closing braces or brackets
+  repaired = repaired.replace(/,\s*([}\]])/g, '$1');
+  return repaired;
+}
+
+/**
+ * Attempt to repair and parse a JSON-like string.  This helper wraps
+ * ``jsonrepair`` and then calls ``JSON.parse`` on the result.  If
+ * parsing fails, it logs the error and rethrows the exception.  By
+ * centralizing the repair/parse logic here we avoid scattering
+ * ad‑hoc JSON extraction throughout the service methods.
+ */
+function parseJsonContent(rawContent: string): any {
+  try {
+    const repaired = jsonrepair(rawContent);
+    return JSON.parse(repaired);
+  } catch (err) {
+    console.error('Failed to parse JSON content:', err);
+    throw err;
+  }
+}
+
 const GROQ_API_KEY = process.env.GROQ_API_KEY!;
 const GROQ_BASE_URL = "https://api.groq.com/openai/v1";
 
@@ -30,16 +70,10 @@ export interface AnalyzedArticle {
   };
 }
 
-function extractJsonFromText(text: string): any {
-  try {
-    const match = text.match(/\{[\s\S]*?\}/);
-    if (!match) throw new Error("No JSON found in response");
-    return JSON.parse(match[0]);
-  } catch (err) {
-    console.error("extractJsonFromText error:", err);
-    throw err;
-  }
-}
+// Note: ``extractJsonFromText`` has been removed in favour of
+// ``parseJsonContent``, which repairs and parses the entire content
+// string directly.  This simplifies the parsing logic and avoids
+// brittle regular expression matching.
 
 async function callGroqChat(params: {
   model?: string;
@@ -90,7 +124,8 @@ Return ONLY valid JSON in this format:
 
       const content = data?.choices?.[0]?.message?.content;
       if (!content) throw new Error("No content in Groq response.");
-      const result = extractJsonFromText(content);
+      // Parse the returned content using our JSON repair helper
+      const result = parseJsonContent(content);
       return result.sources || [];
     } catch (e) {
       console.error("selectNewsSources failed:", e);
@@ -118,16 +153,21 @@ Return ONLY valid JSON.`;
 
       const content = data?.choices?.[0]?.message?.content;
       if (!content) throw new Error("No content in Groq response.");
-      const result = extractJsonFromText(content);
+      // Repair and parse the response as JSON
+      const result = parseJsonContent(content);
 
-      return articles.map((article, i) => {
-        const a = result.rankedArticles.find((r: any) => r.originalIndex === i) || {};
-        return {
-          ...article,
-          aiScore: a.aiScore ?? 50,
-          topic: a.topicMatch ?? topics[0],
-        };
-      }).sort((a, b) => b.aiScore - a.aiScore);
+      return articles
+        .map((article, i) => {
+          const a = (result?.rankedArticles || []).find(
+            (r: any) => r.originalIndex === i
+          ) || {};
+          return {
+            ...article,
+            aiScore: a.aiScore ?? 50,
+            topic: a.topicMatch ?? topics[0],
+          };
+        })
+        .sort((a, b) => (b.aiScore || 0) - (a.aiScore || 0));
     } catch (e) {
       console.error("analyzeAndRankArticles failed:", e);
       return articles.map(article => ({
