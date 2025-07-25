@@ -1,6 +1,57 @@
 // server/services/groq.ts
 import fetch from "node-fetch";
 
+// Define a set of sources that our system actually supports.  Each source
+// entry includes a human‑readable name, its category, a NewsAPI identifier
+// (if available), and an RSS feed URL (if available).  The LLM prompt
+// will be restricted to this list so that we never get unsupported
+// providers like ESPN or Reddit, which don't have simple RSS feeds or
+// NewsAPI IDs.  You can add more sources here as you verify their
+// endpoints.
+/**
+ * A list of reliable news providers and their RSS/API endpoints used as a
+ * fallback when the language model fails to return usable sources.  This
+ * constant is intentionally not surfaced to the LLM; rather, it is only
+ * used internally if we need to default to known sources.  If you wish
+ * to add or remove sources from the fallback, update this list.
+ */
+export const AVAILABLE_SOURCES: Array<{
+  name: string;
+  type: string;
+  newsapiId?: string;
+  feedUrl?: string;
+}> = [
+  {
+    name: "Reuters",
+    type: "News Agency",
+    newsapiId: "reuters",
+    feedUrl: "http://feeds.reuters.com/reuters/topNews",
+  },
+  {
+    name: "Associated Press",
+    type: "News Agency",
+    newsapiId: "associated-press",
+  },
+  {
+    name: "BBC News",
+    type: "Broadcaster",
+    newsapiId: "bbc-news",
+    feedUrl: "http://feeds.bbci.co.uk/news/rss.xml",
+  },
+  {
+    name: "NPR",
+    type: "Broadcaster",
+    newsapiId: "npr",
+    feedUrl: "https://feeds.npr.org/1001/rss.xml",
+  },
+  {
+    name: "The Guardian",
+    type: "Newspaper",
+    newsapiId: "the-guardian-uk",
+    feedUrl: "https://www.theguardian.com/world/rss",
+  },
+];
+
 /*
  * JSON repair helper for Node.js.  We first attempt to load the
  * official ``jsonrepair`` package.  If it is available, we will use
@@ -65,9 +116,11 @@ const GROQ_BASE_URL = "https://api.groq.com/openai/v1";
 export interface NewsSource {
   name: string;
   type: string;
-  relevanceScore: number;
-  credibilityScore: number;
-  reasoning: string;
+  relevanceScore?: number;
+  credibilityScore?: number;
+  feedUrl?: string;
+  newsapiId?: string;
+  reasoning?: string;
 }
 
 export interface AnalyzedArticle {
@@ -118,36 +171,44 @@ async function callGroqChat(params: {
 }
 
 export class GroqService {
-  async selectNewsSources(topics: string[], region: string, excludedSources: string[] = []): Promise<NewsSource[]> {
-    const prompt = `You are an AI news curation expert. Given the following topics and preferences, recommend the best news sources.
+  async selectNewsSources(topics: string[], region: string, excludedSources: string[] = []): Promise<any[]> {
+    /*
+     * Ask the LLM to identify credible and popular news providers for the
+     * specified topics and region.  The model should only return
+     * sources that have an accessible RSS feed or public API, and it
+     * must include that endpoint in the response.  We avoid providing
+     * a predefined list so the model can suggest sources beyond the
+     * fallback set; however, we require it to supply either a `feedUrl`
+     * or a `newsapiId` for each recommendation.  We also instruct the
+     * model not to include excluded sources.
+     */
+    const prompt = `You are an AI news curation expert. Given the following topics and region, recommend the best 3 news providers. Only choose sources that are widely recognized and have an accessible RSS feed or public news API. Do not include any source listed in the excluded sources, and avoid Reddit or other social media aggregators. For each source, provide its exact name, its type (e.g., Newspaper, News Agency, Broadcaster), a working RSS feed URL or API endpoint (feedUrl) if available, and a brief reasoning for why it is a good fit. If a news API identifier exists on newsapi.org, include it in a field called newsapiId. Return the result strictly as JSON in this format:
+{"sources":[{"name":"","type":"","feedUrl":"","newsapiId":"","reasoning":""}]}
 
 Topics: ${topics.join(', ')}
-Region: ${region}
-Excluded sources: ${excludedSources.join(', ') || 'None'}
+Region: ${region || 'International'}
+Excluded sources: ${excludedSources.length > 0 ? excludedSources.join(', ') : 'None'}
 
-Consider these source types:
-- Reddit (community discussions, real-time reactions)
-- Substack (in‑depth analysis, expert newsletters)
-- Traditional Media (established news outlets)
-- Specialized Publications (industry‑specific sources)
-
-Return ONLY valid JSON in this format:
-{"sources":[{"name":"","type":"","relevanceScore":0,"credibilityScore":0,"reasoning":""}]}`;
-
+Return ONLY the JSON and do not include any extra text.`;
     try {
       const data: any = await callGroqChat({
         model: "llama3-70b-8192",
         messages: [{ role: "user", content: prompt }],
       });
-
       const content = data?.choices?.[0]?.message?.content;
       if (!content) throw new Error("No content in Groq response.");
-      // Parse the returned content using our JSON repair helper
       const result = parseJsonContent(content);
       return result.sources || [];
     } catch (e) {
       console.error("selectNewsSources failed:", e);
-      return this.getFallbackSources(topics);
+      // Fallback: return all available sources except any excluded ones
+      return AVAILABLE_SOURCES.filter((src) => !excludedSources.includes(src.name)).map((src) => ({
+        name: src.name,
+        type: src.type,
+        feedUrl: src.feedUrl || '',
+        newsapiId: src.newsapiId || '',
+        reasoning: 'default fallback source',
+      }));
     }
   }
 
@@ -213,57 +274,19 @@ Return ONLY valid JSON.`;
   }
 
   private getFallbackSources(topics: string[]): NewsSource[] {
-    return [
-      {
-        name: "Reuters",
-        type: "News Agency",
-        relevanceScore: 95,
-        credibilityScore: 98,
-        reasoning: "Exceptional credibility with comprehensive global coverage",
-      },
-      {
-        name: "Associated Press",
-        type: "News Agency",
-        relevanceScore: 92,
-        credibilityScore: 96,
-        reasoning: "Reliable wire service with rigorous fact-checking standards",
-      },
-      {
-        name: "BBC News",
-        type: "Broadcaster",
-        relevanceScore: 90,
-        credibilityScore: 94,
-        reasoning: "Global news coverage with strong editorial standards",
-      },
-      {
-        name: "NPR",
-        type: "Broadcaster",
-        relevanceScore: 88,
-        credibilityScore: 92,
-        reasoning: "High-quality journalism with in-depth analysis",
-      },
-      {
-        name: "The Guardian",
-        type: "Newspaper",
-        relevanceScore: 86,
-        credibilityScore: 90,
-        reasoning: "Strong digital presence with investigative journalism",
-      },
-      {
-        name: "Substack",
-        type: "Newsletter Platform",
-        relevanceScore: 84,
-        credibilityScore: 87,
-        reasoning: "Independent journalists and expert analysis on specialized topics",
-      },
-      {
-        name: "Reddit",
-        type: "Social Media",
-        relevanceScore: 82,
-        credibilityScore: 75,
-        reasoning: "Community discussions and early trend identification",
-      },
-    ];
+    /*
+     * If the language model fails to return usable sources, we fall back
+     * to this predefined set.  These entries include known RSS feeds
+     * and NewsAPI identifiers.  You can adjust this list in
+     * AVAILABLE_SOURCES at the top of the file.
+     */
+    return AVAILABLE_SOURCES.map(src => ({
+      name: src.name,
+      type: src.type,
+      feedUrl: src.feedUrl,
+      newsapiId: src.newsapiId,
+      reasoning: "default fallback source",
+    }));
   }
 }
 
