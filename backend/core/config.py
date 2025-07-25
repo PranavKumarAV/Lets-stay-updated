@@ -34,6 +34,13 @@ class Settings:
     # API keys for providers
     GROQ_API_KEY: Optional[str] = field(default_factory=lambda: os.getenv("GROQ_API_KEY"))
 
+    # External news API key.  When provided, the news aggregator will fetch
+    # real articles from the configured news service (e.g. NewsAPI.org).  If
+    # absent, the aggregator falls back to generating mock articles.  Set
+    # ``NEWS_API_KEY`` as an environment variable in your deployment to
+    # enable real news fetching.
+    NEWS_API_KEY: Optional[str] = field(default_factory=lambda: os.getenv("NEWS_API_KEY"))
+
     # Compatibility with legacy usage
     MAX_TOKENS: int = field(init=False)
     TEMPERATURE: float = field(init=False)

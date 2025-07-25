@@ -2,6 +2,8 @@ import random
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
 import logging
+import aiohttp
+from ..core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -12,6 +14,34 @@ class NewsAggregator:
     """
     
     def __init__(self):
+        # Map human-readable source names (as returned by the LLM) to
+        # NewsAPI source identifiers.  Only sources present in this
+        # mapping will be used for real article fetching.  You can extend
+        # this mapping with additional providers supported by your news
+        # service.  See https://newsapi.org/sources for a list of IDs.
+        self.newsapi_source_map = {
+            "Reuters": "reuters",
+            "Associated Press": "associated-press",
+            "BBC News": "bbc-news",
+            "NPR": "npr",
+            "The Guardian": "the-guardian-uk",
+            # Add other known sources here as needed
+        }
+
+        # RSS feed URLs for each source.  These feeds can be used to fetch
+        # headlines without requiring an API key.  Not all outlets provide
+        # straightforward RSS feeds; some may require scraping or are omitted.
+        self.rss_feed_map = {
+            "Reuters": "http://feeds.reuters.com/reuters/topNews",
+            "BBC News": "http://feeds.bbci.co.uk/news/rss.xml",
+            "NPR": "https://feeds.npr.org/1001/rss.xml",
+            "The Guardian": "https://www.theguardian.com/world/rss",
+            # Note: Associated Press does not provide a public RSS feed; omitted.
+        }
+
+        # Mock article templates and author lists retained for fallback mode
+        # (when no NEWS_API_KEY is configured).  These will be used to
+        # generate placeholder articles if real news cannot be fetched.
         self.article_templates = {
             "politics": [
                 "Breaking: Major Policy Changes Announced in {topic}",
@@ -54,14 +84,7 @@ class NewsAggregator:
                 "Awards Season: {topic} Nominations Announced"
             ]
         }
-        
-        # Sample authors for different source types - X/Twitter removed due to API restrictions
-        # Pre-defined author names for different source categories.  These lists
-        # are used to populate the metadata for mock articles.  A missing key
-        # previously caused a KeyError when generating metadata for Twitter/X
-        # sources.  To prevent that, include a `twitter` category with some
-        # placeholder handles.  Note that real-time Twitter scraping is not
-        # performed; these names are used purely for mock data generation.
+
         self.authors = {
             "reddit": [
                 "u/newsreporter",
@@ -88,8 +111,6 @@ class NewsAggregator:
                 "Independent Journalist",
                 "Digital Correspondent"
             ],
-            # Note: we intentionally omit Twitter/X as a source of authors to
-            # avoid relying on that platform for content generation.
         }
     
     async def fetch_articles(self, topics: List[str], sources: List[Dict[str, Any]], count: int) -> List[Dict[str, Any]]:
@@ -97,21 +118,131 @@ class NewsAggregator:
         Simulate fetching articles from various news sources.
         In production, this would make actual API calls to news services.
         """
+        # If a NEWS_API_KEY is provided, fetch real articles from the news API.
+        if settings.NEWS_API_KEY:
+            try:
+                return await self._fetch_real_articles(topics, sources, count)
+            except Exception as e:
+                logger.error(f"Error fetching real articles: {e}. Falling back to RSS or mock data.")
+        # If no API key or API fetch fails, try RSS feeds.  If RSS fails,
+        # generate mock articles.
+        try:
+            rss_articles = await self._fetch_rss_articles(topics, sources, count)
+            if rss_articles:
+                return rss_articles
+        except Exception as e:
+            logger.error(f"Error fetching RSS articles: {e}. Falling back to mock data.")
+        return self._generate_mock_articles(topics, sources, count)
+
+    async def _fetch_real_articles(self, topics: List[str], sources: List[Dict[str, Any]], count: int) -> List[Dict[str, Any]]:
+        """
+        Fetch articles from a real news API (e.g. NewsAPI.org).  The number of
+        articles returned is limited by ``count`` times the number of topics
+        and sources.  Only sources present in ``self.newsapi_source_map``
+        will be queried.
+
+        :param topics: List of topics provided by the user
+        :param sources: List of source dicts (with at least a 'name' key)
+        :param count: Desired number of articles per user request
+        :return: List of articles in the expected format
+        """
+        api_key = settings.NEWS_API_KEY
+        real_articles: List[Dict[str, Any]] = []
+        max_per_request = max(1, count // max(1, len(topics) * len(sources)))
+        async with aiohttp.ClientSession() as session:
+            for topic in topics:
+                for source in sources:
+                    source_name = source.get("name")
+                    source_id = self.newsapi_source_map.get(source_name)
+                    if not source_id:
+                        continue  # skip sources we don't have an ID for
+                    url = (
+                        "https://newsapi.org/v2/everything"
+                        f"?q={topic}&sources={source_id}&pageSize={max_per_request}"
+                        "&sortBy=publishedAt"
+                        f"&apiKey={api_key}"
+                    )
+                    async with session.get(url) as resp:
+                        if resp.status != 200:
+                            text = await resp.text()
+                            logger.warning(f"NewsAPI responded with status {resp.status}: {text}")
+                            continue
+                        data = await resp.json()
+                        for item in data.get("articles", []):
+                            published_at = item.get("publishedAt") or datetime.utcnow().isoformat()
+                            real_articles.append({
+                                "title": item.get("title", ""),
+                                "content": item.get("description") or item.get("content") or "",
+                                "url": item.get("url", ""),
+                                "source": source_name,
+                                "published_at": published_at,
+                                "metadata": {
+                                    "author": item.get("author"),
+                                    "source_name": item.get("source", {}).get("name"),
+                                },
+                            })
+        # Sort articles by publication date descending and limit output
+        real_articles.sort(key=lambda x: x.get("published_at", ""), reverse=True)
+        # Return more articles than requested so AI can filter
+        return real_articles[: count * 2]
+
+    async def _fetch_rss_articles(self, topics: List[str], sources: List[Dict[str, Any]], count: int) -> List[Dict[str, Any]]:
+        """
+        Fetch articles from RSS feeds for the given sources and topics.  This
+        method does not require an API key.  It filters articles whose
+        titles or descriptions mention any of the topics.
+
+        :param topics: List of user topics
+        :param sources: List of source dicts
+        :param count: Desired article count
+        :return: List of articles
+        """
+        import feedparser  # Local import to avoid dependency if unused
+        articles: List[Dict[str, Any]] = []
+        max_per_source = max(1, count // max(1, len(sources)))
+        topic_keywords = [t.lower() for t in topics]
+        for source in sources:
+            name = source.get("name")
+            feed_url = self.rss_feed_map.get(name)
+            if not feed_url:
+                continue
+            feed = feedparser.parse(feed_url)
+            if feed.bozo:
+                logger.warning(f"Failed to parse RSS feed for {name}: {feed.bozo_exception}")
+                continue
+            for entry in feed.entries[: max_per_source * 2]:
+                title = entry.get("title", "")
+                description = entry.get("summary", "") or entry.get("description", "")
+                text = f"{title} {description}".lower()
+                if not any(kw in text for kw in topic_keywords):
+                    continue
+                published = entry.get("published") or entry.get("updated") or datetime.utcnow().isoformat()
+                articles.append({
+                    "title": title,
+                    "content": description,
+                    "url": entry.get("link", ""),
+                    "source": name,
+                    "published_at": published,
+                    "metadata": {
+                        "rss": True,
+                    },
+                })
+        # Sort by published date descending
+        articles.sort(key=lambda x: x.get("published_at", ""), reverse=True)
+        return articles[: count * 2]
+
+    def _generate_mock_articles(self, topics: List[str], sources: List[Dict[str, Any]], count: int) -> List[Dict[str, Any]]:
+        """Generate mock articles when no NEWS_API_KEY is available."""
         articles = []
         source_names = [source['name'] for source in sources]
-        
-        # Generate articles for each topic and source combination
         articles_per_combination = max(1, count // (len(topics) * len(source_names)))
-        
         for topic in topics:
             for source_name in source_names:
-                for _ in range(articles_per_combination + 1):  # +1 for some variety
+                for _ in range(articles_per_combination + 1):
                     article = self._generate_mock_article(topic, source_name)
                     articles.append(article)
-        
-        # Shuffle and return requested count
         random.shuffle(articles)
-        return articles[:count * 2]  # Return extra for AI to filter
+        return articles[: count * 2]
     
     def _generate_mock_article(self, topic: str, source: str) -> Dict[str, Any]:
         """Generate a realistic mock article"""

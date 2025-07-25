@@ -229,8 +229,10 @@ class LLMService:
         articles_summary = []
         for i, article in enumerate(articles[:20]):
             summary_content = article.get("content", "")
-            if len(summary_content) > 500:
-                summary_content = summary_content[:500] + "..."
+            # Truncate content to reduce token usage.  Limiting to 200 characters
+            # helps keep the prompt within the free tier token limits.
+            if len(summary_content) > 200:
+                summary_content = summary_content[:200] + "..."
             articles_summary.append(
                 {
                     "id": i,

@@ -7,3 +7,5 @@ aiofiles==24.1.0
 python-jose==3.5.0
 passlib==1.7.4
 json-repair==0.48.0
+aiohttp==3.9.5
+feedparser==6.0.11
