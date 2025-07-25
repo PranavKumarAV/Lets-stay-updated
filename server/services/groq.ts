@@ -182,14 +182,7 @@ export class GroqService {
      * or a `newsapiId` for each recommendation.  We also instruct the
      * model not to include excluded sources.
      */
-    const prompt = `You are an AI news curation expert. Given the following topics and region, recommend the best 3 news providers. Only choose sources that are widely recognized and have an accessible RSS feed or public news API. Do not include any source listed in the excluded sources, and avoid Reddit or other social media aggregators. For each source, provide its exact name, its type (e.g., Newspaper, News Agency, Broadcaster), a working RSS feed URL or API endpoint (feedUrl) if available, and a brief reasoning for why it is a good fit. If a news API identifier exists on newsapi.org, include it in a field called newsapiId. Return the result strictly as JSON in this format:
-{"sources":[{"name":"","type":"","feedUrl":"","newsapiId":"","reasoning":""}]}
-
-Topics: ${topics.join(', ')}
-Region: ${region || 'International'}
-Excluded sources: ${excludedSources.length > 0 ? excludedSources.join(', ') : 'None'}
-
-Return ONLY the JSON and do not include any extra text.`;
+    const prompt = `You are an AI news curation expert. Given the following topics and region, recommend the best 3 news providers. If the region is 'country', select outlets that primarily serve that country. If the region is 'international', choose globally recognized news providers. Return only sources with a valid RSS feed (feedUrl) or public API ID (newsapiId). Avoid social media platforms like Reddit, Substack, or Twitter. Respond ONLY with JSON in this format: [{"name": "Provider Name", "feedUrl": "https://...", "newsapiId": "id-if-available"}].`;
     try {
       const data: any = await callGroqChat({
         model: "llama3-70b-8192",
