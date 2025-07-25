@@ -4,15 +4,17 @@ import time
 import logging
 from datetime import datetime
 
-from models.schemas import (
+from ..models.schemas import (
     GenerateNewsRequest, GenerateNewsResponse, 
     GetSourcesRequest, GetSourcesResponse,
     HealthResponse, ErrorResponse
 )
-from services.groq_service import groq_service
-from services.news_aggregator import news_aggregator
-from core.database import db
-from core.config import settings
+# Import the backward compatible GroqService wrapper.  This wrapper
+# delegates to the universal LLM service defined in ``services.llm_service``.
+from ..services.groq_service_new import groq_service
+from ..services.news_aggregator import news_aggregator
+from ..core.database import db
+from ..core.config import settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

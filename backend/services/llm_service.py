@@ -7,15 +7,98 @@ import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 import aiohttp
-from core.llm_config import LLMManager
+# Import configuration manager relative to the backend package.  Using
+# a relative import ensures the module can be resolved whether the
+# package is installed or executed directly.
+from ..core.llm_config import LLMManager
 
 logger = logging.getLogger(__name__)
 
 class LLMService:
     def __init__(self):
-        self.config = LLMManager.get_config_from_env()
+        """
+        Initialize the LLM service.
+
+        Attempt to load the configuration from environment variables.  If
+        a required API key is missing, fall back to a disabled state that
+        will never attempt to contact the remote LLM API.  This allows
+        the service to operate in a degraded mode using fallback
+        heuristics without raising an exception at import time.
+        """
+        try:
+            self.config = LLMManager.get_config_from_env()
+        except Exception as e:
+            # When no API key is provided, log a warning and disable the LLM.
+            logger.warning(
+                f"LLM configuration could not be loaded ({e}); operating without an API key."
+            )
+            self.config = None
         self.session: Optional[aiohttp.ClientSession] = None
-        logger.info(f"Initialized LLM service with Groq model: {self.config.model}")
+        if self.config is not None:
+            logger.info(
+                f"Initialized LLM service with Groq model: {self.config.model}"
+            )
+        else:
+            logger.info(
+                "Initialized LLM service in disabled mode (no API key available)"
+            )
+
+    # ------------------------------------------------------------------
+    # Internal utilities
+    # ------------------------------------------------------------------
+    def _parse_json_content(self, content: str) -> Dict[str, Any]:
+        """
+        Attempt to parse the LLM's response content into a Python object.
+
+        The Groq/OpenAI API may sometimes return malformed JSON when the
+        underlying language model produces extra text (such as a leading
+        explanation or trailing comments) or uses single quotes instead
+        of double quotes.  To make the backend resilient, this helper
+        attempts multiple strategies to repair and decode the JSON:
+
+        1. Try a direct ``json.loads`` on the raw string.
+        2. Replace single quotes with double quotes and remove trailing
+           commas before closing braces/brackets, then retry ``json.loads``.
+        3. Fallback to ``ast.literal_eval`` which can parse Python-like
+           dictionaries (but not arbitrary expressions).
+        4. Use a regex to extract the first JSON object or array from
+           the text and decode it if possible.
+        5. As a last resort, raise a ``ValueError`` so the caller can
+           invoke a fallback code path.
+        """
+        import ast
+        import re
+        # First attempt: direct JSON parsing
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            pass
+        # Second attempt: simple repairs (single quotes -> double quotes,
+        # remove trailing commas)
+        repaired = content
+        # Normalize different quote styles by converting single quotes to double quotes.
+        # This is naive but often sufficient for model outputs.
+        repaired = repaired.replace("'", '"')
+        # Remove any trailing comma before a closing brace or bracket.
+        repaired = re.sub(r",\s*([}\]])", r"\1", repaired)
+        try:
+            return json.loads(repaired)
+        except json.JSONDecodeError:
+            pass
+        # Third attempt: Python literal eval for JSON-like structures
+        try:
+            return ast.literal_eval(content)
+        except Exception:
+            pass
+        # Fourth attempt: find the first JSON object or array in the text
+        json_matches = re.findall(r"(\{.*?\}|\[.*?\])", content, re.DOTALL)
+        for match in json_matches:
+            try:
+                return json.loads(match)
+            except Exception:
+                continue
+        # If all parsing attempts fail, raise an error
+        raise ValueError("Unable to parse JSON content from LLM response")
     
     async def _get_session(self) -> aiohttp.ClientSession:
         if self.session is None or self.session.closed:
@@ -68,51 +151,73 @@ class LLMService:
     ) -> List[Dict[str, Any]]:
         """Use LLM to intelligently select the best news sources"""
         excluded_sources = excluded_sources or []
-        
-        system_prompt = """You are a news curation expert. Your task is to recommend the best news sources for given topics and regions.
 
-Consider these factors:
-1. Source credibility and reputation
-2. Coverage quality for the specific topics
-3. Regional relevance
-4. Diversity of perspectives
-5. Timeliness and frequency of updates
+        # If no configuration or API key is available, immediately return fallback sources.
+        if not self.config or not getattr(self.config, "api_key", None):
+            logger.warning(
+                "No LLM API key configured; falling back to default news sources."
+            )
+            return self._get_fallback_sources(topics, region)
 
-Return a JSON array of 5-8 recommended sources with this structure:
-{
-  "sources": [
-    {
-      "name": "Source Name",
-      "type": "newspaper|magazine|news_agency|broadcaster|digital_native",
-      "relevanceScore": 85,
-      "credibilityScore": 90,
-      "reasoning": "Brief explanation of why this source is recommended"
-    }
-  ]
-}"""
+        system_prompt = (
+            "You are a news curation expert. Your task is to recommend the best news sources "
+            "for given topics and regions.\n\n"
+            "Consider these factors:\n"
+            "1. Source credibility and reputation\n"
+            "2. Coverage quality for the specific topics\n"
+            "3. Regional relevance\n"
+            "4. Diversity of perspectives\n"
+            "5. Timeliness and frequency of updates\n\n"
+            "Return a JSON array of 5-8 recommended sources with this structure:\n"
+            "{\n"
+            "  \"sources\": [\n"
+            "    {\n"
+            "      \"name\": \"Source Name\",\n"
+            "      \"type\": \"newspaper|magazine|news_agency|broadcaster|digital_native\",\n"
+            "      \"relevanceScore\": 85,\n"
+            "      \"credibilityScore\": 90,\n"
+            "      \"reasoning\": \"Brief explanation of why this source is recommended\"\n"
+            "    }\n"
+            "  ]\n"
+            "}"
+        )
 
-        user_prompt = f"""
-Topics: {', '.join(topics)}
-Region: {region}
-Excluded sources: {', '.join(excluded_sources) if excluded_sources else 'None'}
-
-Please recommend the best news sources for these topics and region. Avoid the excluded sources.
-Focus on authoritative, well-established sources with strong coverage in these areas.
-"""
+        user_prompt = (
+            f"Topics: {', '.join(topics)}\n"
+            f"Region: {region}\n"
+            f"Excluded sources: {', '.join(excluded_sources) if excluded_sources else 'None'}\n\n"
+            "Please recommend the best news sources for these topics and region. Avoid the excluded sources.\n"
+            "Focus on authoritative, well-established sources with strong coverage in these areas.\n"
+        )
 
         messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
+            {"role": "user", "content": user_prompt},
         ]
-        
+
         try:
             response = await self._make_request(messages, json_mode=True)
             content = response["choices"][0]["message"]["content"]
-            result = json.loads(content)
+            try:
+                result = self._parse_json_content(content)
+            except Exception as parse_err:
+                logger.warning(
+                    f"Failed to parse LLM source recommendation response as JSON: {parse_err}.\n"
+                    f"Raw content: {content[:200]}..."
+                )
+                raise
+
             sources = result.get("sources", [])
-            logger.info(f"Selected {len(sources)} news sources for topics: {topics}")
-            return sources
-            
+            # Filter out any excluded sources that slipped through
+            filtered_sources = [
+                src
+                for src in sources
+                if src.get("name", "").lower() not in [exc.lower() for exc in excluded_sources]
+            ]
+            logger.info(
+                f"Selected {len(filtered_sources)} news sources for topics: {topics}"
+            )
+            return filtered_sources
         except Exception as e:
             logger.error(f"Error selecting news sources: {e}")
             return self._get_fallback_sources(topics, region)
@@ -124,76 +229,107 @@ Focus on authoritative, well-established sources with strong coverage in these a
         preferences: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
         """Use LLM to analyze and rank articles by relevance and quality"""
+        # Early exit if we have no articles or no LLM configuration
+        if not articles or not topics:
+            return self._fallback_scoring(articles, topics)
+        if not self.config or not getattr(self.config, "api_key", None):
+            logger.warning(
+                "No LLM API key configured; falling back to heuristic article scoring."
+            )
+            return self._fallback_scoring(articles, topics)
 
-        system_prompt = """You are a news analysis expert. Analyze and rank news articles based on:
+        system_prompt = (
+            "You are a news analysis expert. Analyze and rank news articles based on:\n\n"
+            "1. Relevance to user topics (40%)\n"
+            "2. Article quality and depth (25%)\n"
+            "3. Timeliness and newsworthiness (20%)\n"
+            "4. Source credibility (15%)\n\n"
+            "Score each article from 1-100 and provide brief reasoning.\n"
+            "Return JSON with ranked articles:\n\n"
+            "{\n"
+            "  \"articles\": [\n"
+            "    {\n"
+            "      \"title\": \"Original title\",\n"
+            "      \"content\": \"Original content\",\n"
+            "      \"url\": \"Original URL\",\n"
+            "      \"source\": \"Original source\",\n"
+            "      \"topic\": \"Most relevant topic\",\n"
+            "      \"ai_score\": 85,\n"
+            "      \"published_at\": \"Original date\",\n"
+            "      \"reasoning\": \"Brief analysis of why this scored highly\",\n"
+            "      \"metadata\": {\"key\": \"value\"}\n"
+            "    }\n"
+            "  ]\n"
+            "}"
+        )
 
-1. Relevance to user topics (40%)
-2. Article quality and depth (25%)
-3. Timeliness and newsworthiness (20%)
-4. Source credibility (15%)
-
-Score each article from 1-100 and provide brief reasoning.
-Return JSON with ranked articles:
-
-{
-  "articles": [
-    {
-      "title": "Original title",
-      "content": "Original content",
-      "url": "Original URL",
-      "source": "Original source",
-      "topic": "Most relevant topic",
-      "ai_score": 85,
-      "published_at": "Original date",
-      "reasoning": "Brief analysis of why this scored highly",
-      "metadata": {"key": "value"}
-    }
-  ]
-}"""
-
+        # Summarize up to the first 20 articles to stay within token limits
         articles_summary = []
         for i, article in enumerate(articles[:20]):
-            articles_summary.append({
-                "id": i,
-                "title": article["title"],
-                "content": article["content"][:500] + "..." if len(article["content"]) > 500 else article["content"],
-                "source": article["source"],
-                "published_at": article["published_at"]
-            })
+            summary_content = article.get("content", "")
+            if len(summary_content) > 500:
+                summary_content = summary_content[:500] + "..."
+            articles_summary.append(
+                {
+                    "id": i,
+                    "title": article.get("title", ""),
+                    "content": summary_content,
+                    "source": article.get("source", ""),
+                    "published_at": article.get("published_at", ""),
+                }
+            )
 
-        user_prompt = f"""
-User topics: {', '.join(topics)}
-User region: {preferences.get('region', 'international')}
-User preferences: {json.dumps(preferences, indent=2)}
-
-Articles to analyze:
-{json.dumps(articles_summary, indent=2)}
-
-Please analyze and rank these articles, returning the full article data with AI scores.
-"""
+        user_prompt = (
+            f"User topics: {', '.join(topics)}\n"
+            f"User region: {preferences.get('region', 'international')}\n"
+            f"User preferences: {json.dumps(preferences, indent=2)}\n\n"
+            "Articles to analyze:\n"
+            f"{json.dumps(articles_summary, indent=2)}\n\n"
+            "Please analyze and rank these articles, returning the full article data with AI scores.\n"
+        )
 
         messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
+            {"role": "user", "content": user_prompt},
         ]
 
         try:
-            response = await self._make_request(messages, json_mode=True, max_tokens=4000)
+            response = await self._make_request(
+                messages, json_mode=True, max_tokens=4000
+            )
             content = response["choices"][0]["message"]["content"]
-            result = json.loads(content)
+            try:
+                result = self._parse_json_content(content)
+            except Exception as parse_err:
+                logger.warning(
+                    f"Failed to parse LLM article ranking response as JSON: {parse_err}.\n"
+                    f"Raw content: {content[:200]}..."
+                )
+                raise
+
             ranked_articles = result.get("articles", [])
 
             final_articles = []
             for ranked in ranked_articles:
-                original = next((a for a in articles if a["title"] == ranked["title"]), None)
+                # Match the ranked article with the original by title
+                original = next(
+                    (a for a in articles if a.get("title") == ranked.get("title")),
+                    None,
+                )
                 if original:
-                    final_article = {**original, **ranked}
-                    final_articles.append(final_article)
+                    # Merge original article fields with AI-provided fields,
+                    # giving precedence to the AI-provided values where appropriate.
+                    merged = {**original, **ranked}
+                    final_articles.append(merged)
 
-            final_articles.sort(key=lambda x: x.get("ai_score", 0), reverse=True)
-            logger.info(f"Analyzed and ranked {len(final_articles)} articles")
+            final_articles.sort(
+                key=lambda x: x.get("ai_score", 0), reverse=True
+            )
+            logger.info(
+                f"Analyzed and ranked {len(final_articles)} articles"
+            )
             return final_articles
-            
+
         except Exception as e:
             logger.error(f"Error analyzing articles: {e}")
             return self._fallback_scoring(articles, topics)
@@ -266,3 +402,11 @@ Please analyze and rank these articles, returning the full article data with AI 
             article["ai_score"] = score
             article["reasoning"] = "Fallback score based on topic keyword match"
         return sorted(articles, key=lambda x: x["ai_score"], reverse=True)
+
+
+# Create a module-level singleton instance.  This allows other modules to
+# import `llm_service` and use the same configured service.  Without
+# instantiating here the import `from services.llm_service import llm_service`
+# would fail because no such variable would exist.  By providing this
+# instance we preserve backward compatibility with the legacy API.
+llm_service = LLMService()

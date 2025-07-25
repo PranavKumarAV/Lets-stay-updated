@@ -75,7 +75,6 @@ Excluded sources: ${excludedSources.join(', ') || 'None'}
 
 Consider these source types:
 - Reddit (community discussions, real-time reactions)
-- X/Twitter (breaking news, expert opinions)
 - Substack (in‑depth analysis, expert newsletters)
 - Traditional Media (established news outlets)
 - Specialized Publications (industry‑specific sources)

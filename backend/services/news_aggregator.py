@@ -56,11 +56,40 @@ class NewsAggregator:
         }
         
         # Sample authors for different source types - X/Twitter removed due to API restrictions
+        # Pre-defined author names for different source categories.  These lists
+        # are used to populate the metadata for mock articles.  A missing key
+        # previously caused a KeyError when generating metadata for Twitter/X
+        # sources.  To prevent that, include a `twitter` category with some
+        # placeholder handles.  Note that real-time Twitter scraping is not
+        # performed; these names are used purely for mock data generation.
         self.authors = {
-            "reddit": ["u/newsreporter", "u/politicsexpert", "u/sportswriter", "u/techguru"],
-            "substack": ["Sarah Chen", "David Rodriguez", "Emily Watson", "Michael Thompson", "Lisa Chang"],
-            "traditional": ["Reuters Staff", "AP Reporter", "BBC Correspondent", "Guardian Writer", "NPR Correspondent"],
-            "newspaper": ["Guardian Reporter", "Independent Journalist", "Digital Correspondent"]
+            "reddit": [
+                "u/newsreporter",
+                "u/politicsexpert",
+                "u/sportswriter",
+                "u/techguru"
+            ],
+            "substack": [
+                "Sarah Chen",
+                "David Rodriguez",
+                "Emily Watson",
+                "Michael Thompson",
+                "Lisa Chang"
+            ],
+            "traditional": [
+                "Reuters Staff",
+                "AP Reporter",
+                "BBC Correspondent",
+                "Guardian Writer",
+                "NPR Correspondent"
+            ],
+            "newspaper": [
+                "Guardian Reporter",
+                "Independent Journalist",
+                "Digital Correspondent"
+            ],
+            # Note: we intentionally omit Twitter/X as a source of authors to
+            # avoid relying on that platform for content generation.
         }
     
     async def fetch_articles(self, topics: List[str], sources: List[Dict[str, Any]], count: int) -> List[Dict[str, Any]]:
@@ -161,13 +190,8 @@ class NewsAggregator:
                 "upvotes": random.randint(100, 5000),
                 "author": random.choice(self.authors["reddit"])
             }
-        elif "twitter" in source_lower or "x" in source_lower:
-            return {
-                "likes": random.randint(100, 10000),
-                "retweets": random.randint(50, 2000),
-                "replies": random.randint(20, 500),
-                "author": random.choice(self.authors["twitter"])
-            }
+        # We intentionally skip generating Twitter/X style metadata because that
+        # platform is excluded from our news sources.
         elif "substack" in source_lower:
             return {
                 "author": random.choice(self.authors["substack"]),

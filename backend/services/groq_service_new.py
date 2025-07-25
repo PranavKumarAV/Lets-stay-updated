@@ -1,6 +1,10 @@
 # Backward compatibility wrapper for the new universal LLM service
 import logging
-from services.llm_service import llm_service
+# Use a relative import here.  The ``services`` package is part of the
+# backend package, so ``from services.llm_service`` may fail if the
+# backend isn't installed as a top-level module.  Using ``.llm_service``
+# ensures the import works regardless of how the package is executed.
+from .llm_service import llm_service
 
 logger = logging.getLogger(__name__)
 

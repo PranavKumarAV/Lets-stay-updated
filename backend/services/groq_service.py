@@ -18,7 +18,10 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 import random
 
-from core.config import settings
+# Import the settings relative to the backend package.  A direct
+# ``from core.config`` import assumes ``core`` is a top-level package,
+# which isn't the case when executing the backend in a local context.
+from ..core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -45,12 +48,11 @@ TOPICS: {', '.join(topics)}
 REGION: {region}
 EXCLUDED SOURCES: {', '.join(excluded_sources) if excluded_sources else 'None'}
 
-Consider these source types:
-- Reddit (community discussions, real-time reactions)
-- Twitter/X (breaking news, expert opinions) 
-- Substack (in-depth analysis, expert newsletters)
-- Traditional Media (Reuters, AP, BBC, etc.)
-- Specialized Publications (industry-specific sources)
+        Consider these source types:
+        - Reddit (community discussions, real-time reactions)
+        - Substack (in-depth analysis, expert newsletters)
+        - Traditional Media (Reuters, AP, BBC, etc.)
+        - Specialized Publications (industry-specific sources)
 
 For each recommended source, provide:
 - name: source name
@@ -183,15 +185,58 @@ Return JSON format:
         if excluded_sources is None:
             excluded_sources = []
         
+        # Predefined fallback sources.  The list intentionally omits Twitter/X to
+        # avoid relying on that platform as a news source.
         all_sources = [
-            {"name": "Reddit", "type": "Social Media", "relevanceScore": 85, "credibilityScore": 70, "reasoning": "Community discussions and diverse perspectives"},
-            {"name": "X (Twitter)", "type": "Social Media", "relevanceScore": 90, "credibilityScore": 65, "reasoning": "Real-time breaking news and expert opinions"},
-            {"name": "Substack", "type": "Newsletter Platform", "relevanceScore": 80, "credibilityScore": 85, "reasoning": "In-depth analysis from subject matter experts"},
-            {"name": "Reuters", "type": "Traditional Media", "relevanceScore": 85, "credibilityScore": 95, "reasoning": "Factual reporting with global reach"},
-            {"name": "Associated Press", "type": "Traditional Media", "relevanceScore": 85, "credibilityScore": 95, "reasoning": "Reliable wire service with comprehensive coverage"},
-            {"name": "BBC News", "type": "Traditional Media", "relevanceScore": 80, "credibilityScore": 90, "reasoning": "International perspective with credible reporting"},
-            {"name": "The Guardian", "type": "Traditional Media", "relevanceScore": 75, "credibilityScore": 85, "reasoning": "Progressive perspective with investigative journalism"},
-            {"name": "Hacker News", "type": "Tech Community", "relevanceScore": 70, "credibilityScore": 80, "reasoning": "Tech-focused discussions and startup news"},
+            {
+                "name": "Reddit",
+                "type": "Social Media",
+                "relevanceScore": 85,
+                "credibilityScore": 70,
+                "reasoning": "Community discussions and diverse perspectives",
+            },
+            {
+                "name": "Substack",
+                "type": "Newsletter Platform",
+                "relevanceScore": 80,
+                "credibilityScore": 85,
+                "reasoning": "In-depth analysis from subject matter experts",
+            },
+            {
+                "name": "Reuters",
+                "type": "Traditional Media",
+                "relevanceScore": 85,
+                "credibilityScore": 95,
+                "reasoning": "Factual reporting with global reach",
+            },
+            {
+                "name": "Associated Press",
+                "type": "Traditional Media",
+                "relevanceScore": 85,
+                "credibilityScore": 95,
+                "reasoning": "Reliable wire service with comprehensive coverage",
+            },
+            {
+                "name": "BBC News",
+                "type": "Traditional Media",
+                "relevanceScore": 80,
+                "credibilityScore": 90,
+                "reasoning": "International perspective with credible reporting",
+            },
+            {
+                "name": "The Guardian",
+                "type": "Traditional Media",
+                "relevanceScore": 75,
+                "credibilityScore": 85,
+                "reasoning": "Progressive perspective with investigative journalism",
+            },
+            {
+                "name": "Hacker News",
+                "type": "Tech Community",
+                "relevanceScore": 70,
+                "credibilityScore": 80,
+                "reasoning": "Tech-focused discussions and startup news",
+            },
         ]
         
         # Filter out excluded sources
