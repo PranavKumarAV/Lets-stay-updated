@@ -44,11 +44,25 @@ import json as _json
 def loads(text: str):
     """Repair a JSON-like string and decode it to a Python object.
 
+    This helper attempts to fix common JSON formatting issues and
+    gracefully handle extraneous text surrounding the JSON object.  It
+    searches for the first opening curly brace ``{`` and the last closing
+    brace ``}`` to isolate the JSON fragment before repairing and
+    decoding it.  If parsing fails, a ``json.JSONDecodeError`` is raised.
+
     :param text: A raw JSON-like string that may contain minor syntax errors.
     :return: The decoded Python object.
     :raises json.JSONDecodeError: If the string cannot be repaired/decoded.
     """
-    repaired = jsonrepair(text)
+    if not isinstance(text, str):
+      return text
+    raw = text.strip()
+    # Find bounds of the JSON object
+    start = raw.find('{')
+    end = raw.rfind('}')
+    if start != -1 and end != -1 and start < end:
+        raw = raw[start:end + 1]
+    repaired = jsonrepair(raw)
     return _json.loads(repaired)
 
 def dumps(obj) -> str:

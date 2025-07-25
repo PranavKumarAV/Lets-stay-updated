@@ -7,17 +7,25 @@ import re
 # passing the string to ``json.loads``.  By using this helper instead of
 # ad‑hoc regex extraction we ensure consistent handling of malformed
 # language‑model outputs.
-from ..utils import json_repair
+# Prefer the external json_repair library if available.  This library
+# provides robust repair functions for malformed JSON.  If it is not
+# installed, fall back to our local implementation in utils.json_repair.
+try:
+    import json_repair as _external_json_repair  # type: ignore
+    _json_repair = _external_json_repair
+except ImportError:
+    from ..utils import json_repair as _json_repair  # type: ignore
 
 def extract_json_from_text(text: str):
     """Deprecated: use ``json_repair.loads`` instead.
 
     This function remains for backward compatibility but now delegates
     directly to ``json_repair.loads``, which repairs and decodes the
-    provided string.
+    provided string.  The actual implementation used depends on whether
+    the external ``json_repair`` library is available.
     """
     try:
-        return json_repair.loads(text)
+        return _json_repair.loads(text)
     except Exception:
         return None
 
@@ -82,8 +90,10 @@ Return exactly 8-12 diverse sources as JSON:
             )
 
             content = response.choices[0].message.content
-            # Repair and decode the JSON response using json_repair
-            result = json_repair.loads(content)
+            # Repair and decode the JSON response using json_repair.  Use
+            # the external implementation if available, otherwise fall back
+            # to our bundled version.
+            result = _json_repair.loads(content)
             sources = result.get('sources', [])
             
             # Filter out excluded sources
@@ -150,7 +160,7 @@ Return JSON format:
 
                 content = response.choices[0].message.content
                 # Repair and decode the JSON returned by the model
-                result = json_repair.loads(content)
+                result = _json_repair.loads(content)
                 
                 # Apply AI scores to batch
                 for analysis in result.get('rankedArticles', []):

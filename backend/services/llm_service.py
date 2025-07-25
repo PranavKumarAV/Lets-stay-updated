@@ -13,7 +13,14 @@ import aiohttp
 from ..core.llm_config import LLMManager
 # Import the json_repair module.  We use ``json_repair.loads`` to
 # repair and decode JSON responses from the LLM.
-from ..utils import json_repair
+# Attempt to import the external json_repair library.  If it's not
+# available (for example, during local development), fall back to
+# our bundled implementation in ``backend.utils.json_repair``.
+try:
+    import json_repair as _external_json_repair  # type: ignore
+    _json_repair = _external_json_repair
+except ImportError:
+    from ..utils import json_repair as _json_repair  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -151,9 +158,10 @@ class LLMService:
 
             try:
                 # Repair and decode the JSON response using json_repair.  This
-                # helper fixes common issues (single quotes, trailing commas)
-                # and then decodes the result into a Python object.
-                result = json_repair.loads(content)
+                # helper fixes common issues and decodes the result into a
+                # Python object.  We reference the module via `_json_repair`,
+                # which points to either the external library or our fallback.
+                result = _json_repair.loads(content)
             except Exception as parse_err:
                 logger.warning(
                     f"Failed to parse LLM source recommendation response as JSON: {parse_err}.\n"
@@ -254,7 +262,7 @@ class LLMService:
             content = response["choices"][0]["message"]["content"]
             try:
                 # Repair and decode the JSON response using json_repair
-                result = json_repair.loads(content)
+                result = _json_repair.loads(content)
             except Exception as parse_err:
                 logger.warning(
                     f"Failed to parse LLM article ranking response as JSON: {parse_err}.\n"

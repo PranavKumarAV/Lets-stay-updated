@@ -2,26 +2,33 @@
 import fetch from "node-fetch";
 
 /*
- * Simple JSON repair helper for Node.js.  This function attempts to
- * correct common formatting issues in language‑model outputs before
- * parsing them with ``JSON.parse``.  It performs a few basic
- * transformations:
- *   1. Replaces all single quotes with double quotes
- *   2. Removes trailing commas before closing braces or brackets
- *
- * If you install the official ``jsonrepair`` package in your project,
- * you can import and use it here instead of this helper to handle
- * more complex cases.  The name ``jsonrepair`` is kept to make
- * migration trivial.
+ * JSON repair helper for Node.js.  We first attempt to load the
+ * official ``jsonrepair`` package.  If it is available, we will use
+ * its implementation, which handles a broad range of malformed JSON
+ * scenarios.  If it is not available (for example, when running
+ * locally without the dependency installed), we fall back to a
+ * minimal implementation that repairs single quotes and trailing
+ * commas.  Keeping the API consistent allows us to transparently use
+ * either implementation.
  */
-function jsonrepair(text: string): string {
-  if (typeof text !== 'string') return text as any;
-  let repaired = text;
-  // Replace single quotes with double quotes
-  repaired = repaired.replace(/'/g, '"');
-  // Remove trailing commas before closing braces or brackets
-  repaired = repaired.replace(/,\s*([}\]])/g, '$1');
-  return repaired;
+let jsonrepair: (text: string) => string;
+try {
+  // The npm package exports a function named ``jsonrepair``.  Some
+  // versions also export a default function; we handle both cases.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const lib = require('jsonrepair');
+  jsonrepair = (lib.jsonrepair || lib) as (text: string) => string;
+} catch (err) {
+  console.warn('jsonrepair package not found, using fallback repair function');
+  jsonrepair = function (text: string): string {
+    if (typeof text !== 'string') return text as any;
+    let repaired = text;
+    // Replace single quotes with double quotes
+    repaired = repaired.replace(/'/g, '"');
+    // Remove trailing commas before closing braces or brackets
+    repaired = repaired.replace(/,\s*([}\]])/g, '$1');
+    return repaired;
+  };
 }
 
 /**
@@ -33,7 +40,18 @@ function jsonrepair(text: string): string {
  */
 function parseJsonContent(rawContent: string): any {
   try {
-    const repaired = jsonrepair(rawContent);
+    let text = rawContent?.trim() ?? '';
+    // Attempt to isolate the JSON portion.  Some LLM responses include
+    // explanatory text before the JSON.  We look for the first '{' and
+    // the last '}' and extract that substring.  If no braces are found
+    // we fall back to the original text.
+    const firstBrace = text.indexOf('{');
+    const lastBrace = text.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace !== -1 && firstBrace < lastBrace) {
+      text = text.slice(firstBrace, lastBrace + 1);
+    }
+    // Repair and parse the isolated JSON
+    const repaired = jsonrepair(text);
     return JSON.parse(repaired);
   } catch (err) {
     console.error('Failed to parse JSON content:', err);
