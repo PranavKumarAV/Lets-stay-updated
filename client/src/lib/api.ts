@@ -11,6 +11,7 @@ export interface NewsArticle {
   published_at: string;
   fetched_at: string;
   metadata?: Record<string, any>;
+  summary?: string;
 }
 
 export interface NewsSource {

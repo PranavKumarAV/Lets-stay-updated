@@ -22,7 +22,8 @@ export default function Home() {
     region: "",
     country: "",
     topics: [],
-    articleCount: 10,
+    // Default to 25 articles for weekly summaries
+    articleCount: 25,
     excludedSources: [],
   });
 

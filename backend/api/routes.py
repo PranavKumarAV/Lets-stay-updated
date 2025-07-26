@@ -9,10 +9,13 @@ from ..models.schemas import (
     GetSourcesRequest, GetSourcesResponse,
     HealthResponse, ErrorResponse
 )
+from typing import List, Dict, Any
 # Import the backward compatible GroqService wrapper.  This wrapper
 # delegates to the universal LLM service defined in ``services.llm_service``.
 from ..services.groq_service_new import groq_service
 from ..services.news_aggregator import news_aggregator
+import aiohttp
+import asyncio
 from ..core.database import db
 from ..core.config import settings
 
@@ -38,20 +41,68 @@ async def generate_news(request: GenerateNewsRequest, background_tasks: Backgrou
         
         logger.info(f"Selected {len(selected_sources)} sources: {[s['name'] for s in selected_sources]}")
         
-        # Step 2: Fetch articles from selected sources
-        mock_articles = await news_aggregator.fetch_articles(
-            topics=request.topics,
-            sources=selected_sources,
-            count=request.article_count
-        )
-        
-        if not mock_articles:
-            raise HTTPException(status_code=404, detail="No articles found for the specified criteria")
-        
+        # Step 2: Fetch and validate articles from selected sources.  We
+        # attempt to fetch more articles than requested to allow for
+        # filtering invalid URLs.  If we don't obtain enough valid
+        # articles after several attempts, we'll use whatever we have.
+        desired_count = request.article_count
+        max_attempts = 3
+        valid_articles: List[Dict[str, Any]] = []
+        seen_urls: set[str] = set()
+
+        async def is_url_valid(url: str) -> bool:
+            """Check if a URL returns a successful response."""
+            try:
+                async with aiohttp.ClientSession() as session:
+                    # Try HEAD first; fallback to GET if HEAD is not allowed.
+                    try:
+                        async with session.head(url, allow_redirects=True, timeout=10) as resp:
+                            # Consider status codes < 400 as valid
+                            if resp.status < 400:
+                                return True
+                    except Exception:
+                        async with session.get(url, allow_redirects=True, timeout=10) as resp_get:
+                            if resp_get.status < 400:
+                                return True
+            except Exception:
+                return False
+            return False
+
+        for attempt in range(max_attempts):
+            if len(valid_articles) >= desired_count:
+                break
+            try:
+                raw_articles = await news_aggregator.fetch_articles(
+                    topics=request.topics,
+                    sources=selected_sources,
+                    count=desired_count
+                )
+            except Exception as e:
+                logger.error(f"Error fetching articles on attempt {attempt+1}: {e}")
+                continue
+            # Validate each article URL
+            for article in raw_articles:
+                url = article.get("url", "")
+                if not url or url in seen_urls:
+                    continue
+                seen_urls.add(url)
+                # Validate asynchronously but sequentially to limit open connections
+                try:
+                    if await is_url_valid(url):
+                        valid_articles.append(article)
+                    if len(valid_articles) >= desired_count:
+                        break
+                except Exception as e:
+                    logger.debug(f"URL validation failed for {url}: {e}")
+                    continue
+
+        if not valid_articles:
+            raise HTTPException(status_code=404, detail="No valid articles found for the specified criteria")
+
         # Step 3: AI analyzes and ranks articles
-        logger.info(f"Analyzing {len(mock_articles)} articles with AI")
+        logger.info(f"Analyzing {len(valid_articles)} articles with AI")
         ranked_articles = await groq_service.analyze_and_rank_articles(
-            articles=mock_articles,
+            articles=valid_articles,
             topics=request.topics,
             preferences={
                 "region": request.region,
@@ -59,12 +110,24 @@ async def generate_news(request: GenerateNewsRequest, background_tasks: Backgrou
                 "excluded_sources": request.excluded_sources or []
             }
         )
-        
-        # Step 4: Store top articles in database
+
+        # Step 4: Generate summaries and store top articles in database
         stored_articles = []
-        top_articles = ranked_articles[:request.article_count]
-        
+        top_articles = ranked_articles[:desired_count]
+
         for article in top_articles:
+            # Generate a concise summary using the LLM service
+            summary_text = ""
+            try:
+                summary_text = await groq_service.client.generate_article_summary(article.get("content", "")) if hasattr(groq_service, 'client') else ""
+            except Exception as e:
+                logger.warning(f"Failed to generate summary for article '{article.get('title', '')}': {e}")
+                summary_text = article.get("content", "")[:200] + ("..." if len(article.get("content", "")) > 200 else "")
+
+            # Store summary in metadata
+            metadata = article.get("metadata", {}) or {}
+            metadata["summary"] = summary_text
+
             try:
                 stored_article = await db.create_news_article({
                     "title": article["title"],
@@ -74,18 +137,18 @@ async def generate_news(request: GenerateNewsRequest, background_tasks: Backgrou
                     "topic": article.get("topic", request.topics[0]),
                     "ai_score": article.get("ai_score", 70),
                     "published_at": article["published_at"],
-                    "metadata": article.get("metadata", {})
+                    "metadata": metadata
                 })
                 stored_articles.append(stored_article)
             except Exception as e:
                 logger.error(f"Error storing article: {e}")
                 continue
-        
+
         # Schedule cleanup of old articles
         background_tasks.add_task(db.clear_old_articles)
-        
+
         processing_time = int((time.time() - start_time) * 1000)
-        
+
         return GenerateNewsResponse(
             articles=stored_articles,
             total_count=len(stored_articles),

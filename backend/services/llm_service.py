@@ -6,6 +6,7 @@ import json
 import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime
+import re
 import aiohttp
 # Import configuration manager relative to the backend package.  Using
 # a relative import ensures the module can be resolved whether the
@@ -34,6 +35,12 @@ class LLMService:
         will never attempt to contact the remote LLM API.  This allows
         the service to operate in a degraded mode using fallback
         heuristics without raising an exception at import time.
+
+        Additionally, prepare a ranked list of free-tier models.  When
+        making requests to the Groq API, we will try these models in
+        sequence.  If one model fails due to rate limits or other
+        errors, the next model in the list will be attempted.  This
+        improves resilience when operating with free-tier limits.
         """
         try:
             self.config = LLMManager.get_config_from_env()
@@ -44,9 +51,32 @@ class LLMService:
             )
             self.config = None
         self.session: Optional[aiohttp.ClientSession] = None
+        # Build a ranked list of models based on the provider metadata.
+        self.models_ranked: List[str] = []
         if self.config is not None:
+            provider_info = LLMManager.PROVIDERS.get(self.config.provider, {})
+            models_info = provider_info.get("models", {}) if provider_info else {}
+            # Define a manual ranking of the available models.  Higher
+            # priority models appear first.  If new models are added,
+            # include them here with an appropriate ordering.
+            preferred_order = [
+                "llama3-70b-8192",
+                "llama-3.1-8b-instant",
+                "mixtral-8x7b-32768",
+            ]
+            # Filter only those models that are present in the provider's
+            # metadata and available for free tier usage.  Preserve the
+            # preferred order.  If the environment specifies a custom model
+            # via LLM_MODEL, ensure it is placed at the front of the list.
+            available_models = [m for m in preferred_order if m in models_info]
+            env_model = self.config.model if hasattr(self.config, "model") else None
+            if env_model and env_model not in available_models and env_model in models_info:
+                available_models.insert(0, env_model)
+            # Remove duplicates while preserving order
+            seen = set()
+            self.models_ranked = [m for m in available_models if not (m in seen or seen.add(m))]
             logger.info(
-                f"Initialized LLM service with Groq model: {self.config.model}"
+                f"Initialized LLM service with model fallback order: {self.models_ranked}"
             )
         else:
             logger.info(
@@ -67,38 +97,61 @@ class LLMService:
             await self.session.close()
 
     async def _make_request(self, messages: List[Dict[str, str]], **kwargs) -> Dict[str, Any]:
-        """Make request to Groq (OpenAI-compatible) API"""
+        """
+        Make a request to the Groq API, trying multiple models if necessary.
+
+        The LLM service maintains a ranked list of models to use.  When
+        invoking the API we iterate through this list.  If a request
+        fails (for example due to rate limiting or other errors), we log
+        the error and attempt the next model.  If all models fail, the
+        last error is propagated.
+        """
+        # If no configuration is available, immediately raise.  This
+        # indicates the LLM is disabled and callers should fallback.
+        if not self.config or not getattr(self.config, "api_key", None):
+            raise Exception("LLM is not configured; cannot make request")
+
         session = await self._get_session()
-
-        headers = {
-            "Authorization": f"Bearer {self.config.api_key}",
-            "Content-Type": "application/json"
-        }
-
-        payload = {
-            "model": self.config.model,
-            "messages": messages,
-            "max_tokens": kwargs.get("max_tokens", self.config.max_tokens),
-            "temperature": kwargs.get("temperature", self.config.temperature),
-        }
-
-        if kwargs.get("json_mode", False):
-            payload["response_format"] = {"type": "json_object"}
-
-        url = f"{self.config.base_url}/chat/completions"
-
-        try:
-            async with session.post(url, headers=headers, json=payload) as response:
-                if response.status == 200:
-                    return await response.json()
-                else:
-                    error_text = await response.text()
-                    logger.error(f"LLM API error {response.status}: {error_text}")
-                    raise Exception(f"LLM API error: {response.status} - {error_text}")
-
-        except Exception as e:
-            logger.error(f"LLM request failed: {e}")
-            raise
+        last_error: Optional[Exception] = None
+        for model_name in self.models_ranked or [self.config.model]:
+            headers = {
+                "Authorization": f"Bearer {self.config.api_key}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "model": model_name,
+                "messages": messages,
+                "max_tokens": kwargs.get("max_tokens", self.config.max_tokens if self.config else 2048),
+                "temperature": kwargs.get("temperature", self.config.temperature if self.config else 0.7),
+            }
+            if kwargs.get("json_mode", False):
+                payload["response_format"] = {"type": "json_object"}
+            url = f"{self.config.base_url}/chat/completions"
+            try:
+                async with session.post(url, headers=headers, json=payload) as response:
+                    if response.status == 200:
+                        # On success, return the JSON response
+                        result = await response.json()
+                        return result
+                    else:
+                        # Capture error text and try next model
+                        error_text = await response.text()
+                        err_msg = f"LLM API error {response.status}: {error_text}"
+                        logger.warning(f"Model {model_name} failed: {err_msg}")
+                        last_error = Exception(err_msg)
+                        # Try next model
+                        continue
+            except Exception as e:
+                # Network or other error; log and move on
+                logger.warning(f"LLM request failed for model {model_name}: {e}")
+                last_error = e
+                continue
+        # If we exit the loop without returning, propagate the last error
+        if last_error:
+            logger.error(f"All LLM models failed: {last_error}")
+            raise last_error
+        # Should not reach here; raise generic error
+        raise Exception("LLM request failed for all models")
 
     async def select_news_sources(
         self, 
@@ -298,6 +351,48 @@ class LLMService:
         except Exception as e:
             logger.error(f"Error analyzing articles: {e}")
             return self._fallback_scoring(articles, topics)
+
+    async def generate_article_summary(self, content: str) -> str:
+        """
+        Summarize a news article into a concise bullet point.  This helper
+        uses the LLM to condense the article into a single sentence
+        capturing the essence of the story.  When the LLM is not
+        available, it falls back to returning the first 40 words of the
+        content followed by an ellipsis.
+
+        :param content: The full text of the article
+        :return: A short summary string
+        """
+        # If no configuration is available, return a simple truncated
+        # summary.  Split on whitespace to avoid cutting words in half.
+        if not self.config or not getattr(self.config, "api_key", None):
+            words = content.split()
+            return " ".join(words[:40]) + ("..." if len(words) > 40 else "")
+
+        prompt = (
+            "You are an AI assistant tasked with summarizing news articles. "
+            "Generate a single concise sentence that captures the key point "
+            "of the following article. Do not include any extraneous details.\n\n"
+            f"Article:\n{content[:1500]}"
+        )
+        messages = [
+            {"role": "system", "content": "You summarize news articles succinctly."},
+            {"role": "user", "content": prompt},
+        ]
+        try:
+            response = await self._make_request(messages, max_tokens=100, temperature=0.4)
+            # The response content is expected to be plain text.  Extract it
+            # from the first choice.  If the response is structured as
+            # JSON, fall back to the raw content.
+            text = response.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+            # Clean up any leading dashes or bullet markers that the model
+            # might include.
+            return re.sub(r"^[\-\•\s]+", "", text)
+        except Exception as e:
+            logger.warning(f"Failed to generate summary with LLM: {e}")
+            # Fallback to truncation
+            words = content.split()
+            return " ".join(words[:40]) + ("..." if len(words) > 40 else "")
 
     def _get_fallback_sources(self, topics: List[str], region: str) -> List[Dict[str, Any]]:
         fallback_sources = [

@@ -150,6 +150,10 @@ class NewsAggregator:
         real_articles: List[Dict[str, Any]] = []
         max_per_request = max(1, count // max(1, len(topics) * len(sources)))
         async with aiohttp.ClientSession() as session:
+            # Compute the date range for the past seven days.  The NewsAPI
+            # accepts a `from` parameter specifying the earliest publication
+            # time; omit the `to` parameter to default to the current time.
+            from_date = (datetime.utcnow() - timedelta(days=7)).strftime("%Y-%m-%d")
             for topic in topics:
                 for source in sources:
                     source_name = source.get("name")
@@ -160,6 +164,7 @@ class NewsAggregator:
                         "https://newsapi.org/v2/everything"
                         f"?q={topic}&sources={source_id}&pageSize={max_per_request}"
                         "&sortBy=publishedAt"
+                        f"&from={from_date}"
                         f"&apiKey={api_key}"
                     )
                     async with session.get(url) as resp:
@@ -169,7 +174,14 @@ class NewsAggregator:
                             continue
                         data = await resp.json()
                         for item in data.get("articles", []):
+                            # Skip articles published more than seven days ago
                             published_at = item.get("publishedAt") or datetime.utcnow().isoformat()
+                            try:
+                                published_dt = datetime.fromisoformat(published_at.rstrip("Z"))
+                            except Exception:
+                                published_dt = datetime.utcnow()
+                            if published_dt < datetime.utcnow() - timedelta(days=7):
+                                continue
                             real_articles.append({
                                 "title": item.get("title", ""),
                                 "content": item.get("description") or item.get("content") or "",
@@ -217,12 +229,23 @@ class NewsAggregator:
                 if not any(kw in text for kw in topic_keywords):
                     continue
                 published = entry.get("published") or entry.get("updated") or datetime.utcnow().isoformat()
+                # Convert RSS published date to datetime object if possible
+                try:
+                    published_dt = datetime(*entry.published_parsed[:6]) if hasattr(entry, 'published_parsed') and entry.published_parsed else datetime.fromisoformat(published)
+                except Exception:
+                    try:
+                        published_dt = datetime.fromisoformat(published)
+                    except Exception:
+                        published_dt = datetime.utcnow()
+                # Skip entries older than seven days
+                if published_dt < datetime.utcnow() - timedelta(days=7):
+                    continue
                 articles.append({
                     "title": title,
                     "content": description,
                     "url": entry.get("link", ""),
                     "source": name,
-                    "published_at": published,
+                    "published_at": published_dt.isoformat(),
                     "metadata": {
                         "rss": True,
                     },
@@ -261,8 +284,11 @@ class NewsAggregator:
         url_slug = title.lower().replace(" ", "-").replace(":", "")[:50]
         url = f"https://example.com/{topic.lower().replace(' ', '-')}/{url_slug}"
         
-        # Generate published time (within last 24 hours)
-        published_at = datetime.now() - timedelta(hours=random.randint(1, 24))
+        # Generate published time within the last 7 days.  When summarizing
+        # weekly highlights we want articles from the past week rather than
+        # only the last 24 hours.  Choose a random time within the last
+        # 7×24 hours (7 days) to simulate realistic publication dates.
+        published_at = datetime.now() - timedelta(hours=random.randint(1, 7 * 24))
         
         # Generate metadata based on source type
         metadata = self._generate_metadata(source)

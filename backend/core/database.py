@@ -96,6 +96,10 @@ class NewsDatabase:
 
         article['id'] = article_id
         article['fetched_at'] = datetime.now().isoformat()
+        # If the metadata includes a summary, surface it at the top level
+        metadata = article.get('metadata') or {}
+        if isinstance(metadata, dict) and 'summary' in metadata:
+            article['summary'] = metadata.get('summary')
         return article
 
     async def get_news_articles(self, topics: Optional[List[str]] = None,
@@ -135,7 +139,8 @@ class NewsDatabase:
 
         articles = []
         for row in rows:
-            articles.append({
+            metadata = json.loads(row[9]) if row[9] else {}
+            article_obj = {
                 'id': row[0],
                 'title': row[1],
                 'content': row[2],
@@ -145,8 +150,12 @@ class NewsDatabase:
                 'ai_score': row[6],
                 'published_at': row[7],
                 'fetched_at': row[8],
-                'metadata': json.loads(row[9]) if row[9] else {}
-            })
+                'metadata': metadata
+            }
+            # If a summary exists in metadata, expose it at the top level
+            if isinstance(metadata, dict) and 'summary' in metadata:
+                article_obj['summary'] = metadata.get('summary')
+            articles.append(article_obj)
 
         return articles
 

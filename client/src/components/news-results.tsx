@@ -110,8 +110,8 @@ export function NewsResults({ preferences, onModifySearch }: NewsResultsProps) {
       <div className="mb-8">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6">
           <div>
-            <h2 className="text-3xl font-bold text-secondary mb-2">Your Curated News Feed</h2>
-            <p className="text-gray-600">AI-selected and ranked articles based on your preferences</p>
+            <h2 className="text-3xl font-bold text-secondary mb-2">This Week's Highlights</h2>
+            <p className="text-gray-600">AI-selected summaries based on your preferences</p>
           </div>
           <div className="flex items-center space-x-4 mt-4 md:mt-0">
             <div className="flex items-center space-x-2 text-sm text-gray-600">
@@ -172,90 +172,26 @@ export function NewsResults({ preferences, onModifySearch }: NewsResultsProps) {
           </Button>
         </div>
       ) : (
-        <div className="space-y-6">
-          {articles.map((article) => (
-            <Card key={article.id} className="shadow-md border border-gray-200 hover:shadow-lg transition-shadow overflow-hidden">
-              <CardContent className="p-6">
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
-                      <i className="fas fa-newspaper text-blue-600 text-sm"></i>
-                    </div>
-                    <div>
-                      <span className="text-sm font-medium text-gray-900">{article.topic}</span>
-                      <div className="flex items-center space-x-2 text-xs text-gray-500">
-                        <span>{article.source}</span>
-                        <span>•</span>
-                        <span>{new Date(article.published_at).toLocaleDateString()}</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <Badge 
-                      className={`text-white text-xs ${
-                        article.ai_score >= 90 ? "bg-success" : 
-                        article.ai_score >= 80 ? "bg-yellow-500" : "bg-gray-500"
-                      }`}
-                    >
-                      AI Score: {article.ai_score}
-                    </Badge>
-                  </div>
+        <div className="bg-surface rounded-xl p-6 shadow-md border border-gray-200">
+          <ul className="list-disc pl-5 space-y-4">
+            {articles.map((article) => (
+              <li key={article.id} className="flex items-start justify-between">
+                <div className="pr-4 text-gray-700 max-w-prose">
+                  {/* Use the summary if available, otherwise fall back to the first lines of the content */}
+                  {article.summary || article.metadata?.summary || article.content.slice(0, 200) + (article.content.length > 200 ? "..." : "")}
                 </div>
-                
-                <h3 className="text-xl font-semibold text-secondary mb-3 hover:text-primary cursor-pointer transition-colors">
-                  {article.title}
-                </h3>
-                
-                <p className="text-gray-600 mb-4 line-clamp-3">
-                  {article.content}
-                </p>
-                
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-4 text-sm text-gray-500">
-                    {article.metadata?.views && (
-                      <div className="flex items-center space-x-1">
-                        <i className="fas fa-eye"></i>
-                        <span>{article.metadata.views.toLocaleString()} views</span>
-                      </div>
-                    )}
-                    {article.metadata?.comments && (
-                      <div className="flex items-center space-x-1">
-                        <i className="fas fa-comments"></i>
-                        <span>{article.metadata.comments} comments</span>
-                      </div>
-                    )}
-                    {article.metadata?.likes && (
-                      <div className="flex items-center space-x-1">
-                        <i className="fas fa-heart"></i>
-                        <span>{article.metadata.likes.toLocaleString()} likes</span>
-                      </div>
-                    )}
-                    {article.metadata?.readTime && (
-                      <div className="flex items-center space-x-1">
-                        <i className="fas fa-clock"></i>
-                        <span>{article.metadata.readTime}</span>
-                      </div>
-                    )}
-                    {article.metadata?.author && (
-                      <div className="flex items-center space-x-1">
-                        <i className="fas fa-user"></i>
-                        <span>by {article.metadata.author}</span>
-                      </div>
-                    )}
-                  </div>
-                  <a 
-                    href={article.url} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="text-primary hover:text-blue-700 font-medium text-sm flex items-center space-x-1"
-                  >
-                    <span>Read Full Article</span>
-                    <i className="fas fa-external-link-alt"></i>
-                  </a>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                <a
+                  href={article.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:text-blue-700 text-sm flex-shrink-0 ml-2"
+                >
+                  Link
+                  <i className="fas fa-external-link-alt ml-1"></i>
+                </a>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
     </div>

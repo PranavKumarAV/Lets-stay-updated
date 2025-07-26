@@ -29,6 +29,7 @@ class NewsArticleResponse(BaseModel):
     published_at: str
     fetched_at: str
     metadata: Optional[Dict[str, Any]] = Field(default={}, description="Additional article metadata")
+    summary: Optional[str] = Field(default=None, description="Concise summary of the article")
 
 class NewsSourceResponse(BaseModel):
     name: str

@@ -9,11 +9,13 @@ interface SourcePreferencesProps {
   onGenerate: () => void;
 }
 
+// Define article count options.  We summarize weekly highlights, so
+// choose higher counts by default.  Remove the smaller options (5 and 10)
+// and introduce a 35‑article option between 25 and 50.
 const articleCounts = [
-  { value: 5, label: "Quick Update" },
-  { value: 10, label: "Recommended" },
-  { value: 25, label: "Comprehensive" },
-  { value: 50, label: "Deep Dive" },
+  { value: 25, label: "Concise" },
+  { value: 35, label: "Standard" },
+  { value: 50, label: "In‑Depth" },
 ];
 
 const sources = [
@@ -56,7 +58,7 @@ export function SourcePreferences({ preferences, updatePreferences, onGenerate }
         {/* Article Count Selection */}
         <div className="bg-surface rounded-xl p-6 shadow-md border border-gray-200">
           <h3 className="text-lg font-semibold text-secondary mb-4">Number of Articles</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
             {articleCounts.map((option) => (
               <div
                 key={option.value}
