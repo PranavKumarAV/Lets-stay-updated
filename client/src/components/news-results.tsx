@@ -173,12 +173,17 @@ export function NewsResults({ preferences, onModifySearch }: NewsResultsProps) {
         </div>
       ) : (
         <div className="bg-surface rounded-xl p-6 shadow-md border border-gray-200">
-          <ul className="list-disc pl-5 space-y-4">
+          {/* Use a custom list style rather than relying on CSS bullets.  */}
+          <ul className="space-y-4">
             {articles.map((article) => (
               <li key={article.id} className="flex items-start justify-between">
-                <div className="pr-4 text-gray-700 max-w-prose">
-                  {/* Use the summary if available, otherwise fall back to the first lines of the content */}
-                  {article.summary || article.metadata?.summary || article.content.slice(0, 200) + (article.content.length > 200 ? "..." : "")}
+                <div className="flex">
+                  {/* Leading symbol to differentiate each point */}
+                  <span className="text-primary mr-2 mt-1">•</span>
+                  <div className="pr-4 text-gray-700 max-w-prose">
+                    {/* Use the summary if available, otherwise fall back to the first lines of the content */}
+                    {article.summary || article.metadata?.summary || article.content.slice(0, 200) + (article.content.length > 200 ? "..." : "")}
+                  </div>
                 </div>
                 <a
                   href={article.url}

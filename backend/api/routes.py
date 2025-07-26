@@ -43,10 +43,16 @@ async def generate_news(request: GenerateNewsRequest, background_tasks: Backgrou
         
         # Step 2: Fetch and validate articles from selected sources.  We
         # attempt to fetch more articles than requested to allow for
-        # filtering invalid URLs.  If we don't obtain enough valid
-        # articles after several attempts, we'll use whatever we have.
+        # filtering invalid or off-topic entries.  If we don't obtain
+        # enough valid articles after several attempts, we'll use
+        # whatever we have collected.  Note: this logic explicitly
+        # filters articles to ensure they mention at least one of the
+        # user-specified topics in either the title or content.  It
+        # also continues to fetch additional batches until the
+        # requested number of articles is reached or the maximum
+        # number of attempts is exceeded.
         desired_count = request.article_count
-        max_attempts = 3
+        max_attempts = 5
         valid_articles: List[Dict[str, Any]] = []
         seen_urls: set[str] = set()
 
@@ -68,30 +74,61 @@ async def generate_news(request: GenerateNewsRequest, background_tasks: Backgrou
                 return False
             return False
 
+        def is_article_relevant(article: Dict[str, Any], topics: List[str]) -> bool:
+            """Simple heuristic to check if an article mentions any of the user topics.
+
+            Combines the article title and content into a single lower-case
+            string and checks if any topic string (also lower-case)
+            appears as a substring.  If no topics are provided, all
+            articles are considered relevant.
+            """
+            if not topics:
+                return True
+            combined_text = f"{article.get('title', '')} {article.get('content', '')}".lower()
+            for t in topics:
+                t_lower = t.lower().strip()
+                if not t_lower:
+                    continue
+                if t_lower in combined_text:
+                    return True
+            return False
+
         for attempt in range(max_attempts):
+            # Stop if we've collected enough articles
             if len(valid_articles) >= desired_count:
                 break
+            # Determine how many more articles we need.  Always request at
+            # least 1 article to avoid zero-length requests.  We add a
+            # small buffer by requesting the full desired_count on the
+            # first attempt and the remaining count on subsequent tries.
+            remaining = desired_count - len(valid_articles)
+            fetch_count = desired_count if attempt == 0 else max(1, remaining)
             try:
                 raw_articles = await news_aggregator.fetch_articles(
                     topics=request.topics,
                     sources=selected_sources,
-                    count=desired_count
+                    count=fetch_count
                 )
             except Exception as e:
                 logger.error(f"Error fetching articles on attempt {attempt+1}: {e}")
                 continue
-            # Validate each article URL
+            # Validate each article
             for article in raw_articles:
+                # Stop if we've reached our target
+                if len(valid_articles) >= desired_count:
+                    break
                 url = article.get("url", "")
+                # Skip duplicate URLs or missing URLs
                 if not url or url in seen_urls:
                     continue
                 seen_urls.add(url)
-                # Validate asynchronously but sequentially to limit open connections
+                # Filter out articles that do not mention the requested topics
+                if not is_article_relevant(article, request.topics):
+                    continue
+                # Validate the URL asynchronously but sequentially to limit open connections
                 try:
                     if await is_url_valid(url):
                         valid_articles.append(article)
-                    if len(valid_articles) >= desired_count:
-                        break
                 except Exception as e:
                     logger.debug(f"URL validation failed for {url}: {e}")
                     continue
