@@ -59,4 +59,7 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
 # ``backend/main.py`` preserves the package structure and prevents
 # relative import errors (e.g. "attempted relative import beyond
 # top-level package").
-CMD ["python", "backend/main.py"]
+# Start the FastAPI application using uvicorn.  Running the app via
+# uvicorn ensures that the ``backend`` package is imported correctly
+# and relative imports inside the package work as expected.
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "5000"]

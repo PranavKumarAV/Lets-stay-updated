@@ -7,9 +7,15 @@ import uvicorn
 from contextlib import asynccontextmanager
 import logging
 
-from api.routes import router as api_router
-from core.config import settings
-from core.database import init_db
+# Import submodules relative to the backend package.  When this module
+# is executed as part of the ``backend`` package (e.g. via
+# ``python -m backend.main`` or ``uvicorn backend.main:app``), these
+# relative imports resolve correctly.  Avoid absolute imports like
+# ``from api.routes`` to prevent "attempted relative import beyond
+# top-level package" errors when the code is packaged.
+from .api.routes import router as api_router
+from .core.config import settings
+from .core.database import init_db
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -68,8 +74,13 @@ if settings.ENVIRONMENT == "production":
 
 # Dev entry point
 if __name__ == "__main__":
+    # When running this module directly, use uvicorn and reference the
+    # application via the ``backend.main:app`` module path.  This
+    # ensures that uvicorn imports the module within the package
+    # namespace, enabling relative imports to work correctly.  The
+    # ``reload`` flag is enabled automatically in development mode.
     uvicorn.run(
-        "main:app",
+        "backend.main:app",
         host="0.0.0.0",
         port=settings.PORT,
         reload=settings.ENVIRONMENT == "development"

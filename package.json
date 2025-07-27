@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
-    "start": "python backend/main.py",
+    "start": "uvicorn backend.main:app --host 0.0.0.0 --port 5000",
     "check": "tsc"
   },
   "dependencies": {
