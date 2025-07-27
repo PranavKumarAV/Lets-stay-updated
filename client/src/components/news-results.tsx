@@ -137,7 +137,12 @@ export function NewsResults({ preferences, onModifySearch }: NewsResultsProps) {
               </div>
               <div className="flex items-center space-x-2">
                 <i className="fas fa-tags text-primary"></i>
-                <span>{preferences.topics.join(", ")}</span>
+                {/* Capitalize each topic for display */}
+                <span>
+                  {preferences.topics
+                    .map(topic => topic.charAt(0).toUpperCase() + topic.slice(1))
+                    .join(", ")}
+                </span>
               </div>
               <div className="flex items-center space-x-2">
                 <i className="fas fa-list text-primary"></i>

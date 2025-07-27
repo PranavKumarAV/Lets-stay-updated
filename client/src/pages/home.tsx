@@ -55,9 +55,8 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center space-x-3">
-              <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-                <i className="fas fa-newspaper text-white text-sm"></i>
-              </div>
+              {/* Display a newspaper emoji for a more vibrant header */}
+              <span className="text-3xl">🗞️</span>
               <h1 className="text-xl font-bold text-secondary">Let's Stay Updated</h1>
             </div>
             <div className="flex items-center space-x-4">
@@ -112,16 +111,30 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center">
             <div className="flex items-center justify-center space-x-2 mb-4">
-              <div className="w-6 h-6 bg-primary rounded flex items-center justify-center">
-                <i className="fas fa-newspaper text-white text-xs"></i>
-              </div>
+              <span className="text-xl">🗞️</span>
               <span className="font-semibold">Let's Stay Updated</span>
             </div>
-            <p className="text-gray-400 text-sm mb-4">AI-powered news curation for the modern reader</p>
-            <div className="flex items-center justify-center space-x-6 text-sm text-gray-400">
-              <a href="#" className="hover:text-white transition-colors">Privacy Policy</a>
-              <a href="#" className="hover:text-white transition-colors">Terms of Service</a>
-              <a href="#" className="hover:text-white transition-colors">Contact Us</a>
+            {/* About the creator */}
+            <p className="text-gray-300 text-sm mb-4">
+              I’m Pranav Venkatesan, just a curious guy trying to work and develop AI‑related projects.
+            </p>
+            <div className="flex items-center justify-center space-x-6 text-sm">
+              <a
+                href="https://github.com/PranavKumarAV"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:text-primary transition-colors underline"
+              >
+                GitHub
+              </a>
+              <a
+                href="https://www.linkedin.com/in/pranav31/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:text-primary transition-colors underline"
+              >
+                LinkedIn
+              </a>
             </div>
           </div>
         </div>
