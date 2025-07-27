@@ -1,10 +1,24 @@
 # Multi-stage build: First build the frontend
 FROM node:18-alpine AS frontend-builder
 
-WORKDIR /app/client
-COPY client/package*.json ./
-RUN npm ci --only=production
-COPY client/ ./
+# The frontend is built using the root package.json.  We set the working
+# directory to /app, install the production dependencies defined in the
+# root package.json, copy the entire repository, and run the build script.
+WORKDIR /app
+
+# Copy package manifests and install dependencies.  We use `npm install`
+# instead of `npm ci` because a package-lock.json is not provided in
+# this repository.  Installing all dependencies is acceptable here
+# because the production-only flag would otherwise require a lock file.
+COPY package*.json ./
+RUN npm install
+
+# Copy the rest of the source code.  This includes the client/ directory,
+# shared code, and the Vite configuration needed for the build.
+COPY . .
+
+# Execute the build script defined in package.json.  This will run
+# `vite build` and output the static assets to dist/public.
 RUN npm run build
 
 # Now build the Python backend
@@ -28,7 +42,7 @@ RUN pip install --no-cache-dir -r backend/requirements.txt
 COPY backend/ ./backend/
 
 # Copy built frontend from previous stage
-COPY --from=frontend-builder /app/client/dist ./dist
+COPY --from=frontend-builder /app/dist ./dist
 
 # Create non-root user for security
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
