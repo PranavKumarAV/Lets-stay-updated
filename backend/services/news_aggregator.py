@@ -133,17 +133,17 @@ class NewsAggregator:
         This method first consults the NewsAPI for each requested source.  If a
         source is not present in the built‑in mapping, it attempts to discover
         the corresponding NewsAPI identifier using the ``discover_api_for_source``
-        helper.  Any discovered identifiers are cached for future use.  If the
-        caller has provided a valid NEWS_API_KEY and at least one source ID
-        resolves, the aggregator will attempt to fetch articles from the
-        NewsAPI.  Should the API return no articles or encounter an error,
-        fetching falls back to RSS feeds.  If RSS retrieval also fails or
-        yields no results, an empty list is returned.  Mock articles are
-        intentionally not generated.
+        helper.  Any discovered identifiers are cached for future use.  The
+        aggregator then attempts to fetch articles from the NewsAPI, followed
+        by RSS feeds for the user‑selected sources.  If those calls yield
+        fewer than the requested number of articles, additional RSS feeds
+        from all known sources are queried to top up the result.  Duplicate
+        articles (based on URL) are removed and the combined list is
+        truncated to twice the requested count to give the AI extra context.
 
         :param topics: List of user topics
         :param sources: List of source dicts containing at least a ``name`` key
-        :param count: The desired number of articles
+        :param count: The desired minimum number of articles
         :return: A list of news articles (possibly empty)
         """
         # Build a list of valid NewsAPI source identifiers.  Attempt to
@@ -183,35 +183,66 @@ class NewsAggregator:
             if source_id:
                 valid_source_ids.append((name, source_id))
 
+        collected: List[Dict[str, Any]] = []
+
         # Attempt to fetch from NewsAPI if credentials and valid sources exist
         if settings.NEWS_API_KEY and valid_source_ids:
             try:
                 real_articles = await self._fetch_real_articles(topics, sources, count)
                 if real_articles:
-                    return real_articles
-                logger.warning(
-                    "NewsAPI returned no articles for topics %s and sources %s; falling back to RSS.",
-                    topics,
-                    [s.get("name") for s in sources],
-                )
+                    collected.extend(real_articles)
+                else:
+                    logger.warning(
+                        "NewsAPI returned no articles for topics %s and sources %s.",
+                        topics,
+                        [s.get("name") for s in sources],
+                    )
             except Exception as e:
-                logger.error(f"Error fetching real articles: {e}. Falling back to RSS.")
+                logger.error(f"Error fetching real articles: {e}.")
 
-        # Attempt to fetch from RSS feeds
+        # Fetch from RSS feeds for the user‑selected sources
         try:
             rss_articles = await self._fetch_rss_articles(topics, sources, count)
             if rss_articles:
-                return rss_articles
-            logger.warning(
-                "RSS feeds returned no articles for topics %s and sources %s.",
-                topics,
-                [s.get("name") for s in sources],
-            )
+                collected.extend(rss_articles)
+            else:
+                logger.warning(
+                    "RSS feeds returned no articles for topics %s and sources %s.",
+                    topics,
+                    [s.get("name") for s in sources],
+                )
         except Exception as e:
             logger.error(f"Error fetching RSS articles: {e}.")
 
-        # Neither API nor RSS produced articles; return empty list
-        return []
+        # If we still don't have enough articles, fetch from additional RSS feeds
+        if len(collected) < count:
+            # Determine which sources haven't been queried yet
+            selected_names = {s.get("name") for s in sources if s.get("name")}
+            additional_source_objs = [
+                {"name": name} for name in self.rss_feed_map.keys() if name not in selected_names
+            ]
+            try:
+                extra = await self._fetch_rss_articles(topics, additional_source_objs, count)
+                if extra:
+                    collected.extend(extra)
+            except Exception as e:
+                logger.error(f"Error fetching additional RSS articles: {e}.")
+
+        # Deduplicate by URL
+        unique_articles: List[Dict[str, Any]] = []
+        seen_urls = set()
+        for article in collected:
+            url = article.get("url")
+            if not url or url in seen_urls:
+                continue
+            seen_urls.add(url)
+            unique_articles.append(article)
+
+        # Sort by published date descending if available
+        unique_articles.sort(key=lambda x: x.get("published_at", ""), reverse=True)
+
+        # Return up to twice the requested count to give AI more context
+        return unique_articles[: count * 2]
 
     async def discover_api_for_source(self, source_name: str) -> Optional[str]:
         """
@@ -356,10 +387,15 @@ class NewsAggregator:
                 # Skip entries older than seven days
                 if published_dt < datetime.utcnow() - timedelta(days=7):
                     continue
+                # Ensure the URL is absolute.  Some feeds return relative
+                # links; urljoin will resolve them against the feed URL.
+                from urllib.parse import urljoin
+                link = entry.get("link", "") or ""
+                absolute_link = urljoin(feed_url, link)
                 articles.append({
                     "title": title,
                     "content": description,
-                    "url": entry.get("link", ""),
+                    "url": absolute_link,
                     "source": name,
                     "published_at": published_dt.isoformat(),
                     "metadata": {

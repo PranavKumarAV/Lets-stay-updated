@@ -9,13 +9,14 @@ interface SourcePreferencesProps {
   onGenerate: () => void;
 }
 
-// Define article count options.  We summarize weekly highlights, so
-// choose higher counts by default.  Remove the smaller options (5 and 10)
-// and introduce a 35‑article option between 25 and 50.
+// Define article count options.  We provide smaller counts to reduce
+// API usage: 5, 10 and 15 articles.  These correspond to concise,
+// standard and in‑depth summaries.  Avoid offering large counts like
+// 25–50 which can exhaust the free tier of NewsAPI.
 const articleCounts = [
-  { value: 25, label: "Concise" },
-  { value: 35, label: "Standard" },
-  { value: 50, label: "In‑Depth" },
+  { value: 5, label: "Concise" },
+  { value: 10, label: "Standard" },
+  { value: 15, label: "In‑Depth" },
 ];
 
 const sources = [

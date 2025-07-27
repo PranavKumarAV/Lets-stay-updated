@@ -111,18 +111,13 @@ export function RegionSelection({ preferences, updatePreferences, onNext }: Regi
                     className="w-full h-10 px-3 py-2 border border-gray-300 rounded-md bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   >
                     <option value="">Select a country...</option>
+                    {/* Restrict to countries with robust news APIs and English language coverage.
+                       These options align with the sources available in the backend and
+                       reduce the likelihood of empty results. */}
                     <option value="US">United States</option>
-                    <option value="UK">United Kingdom</option>
                     <option value="CA">Canada</option>
+                    <option value="UK">United Kingdom</option>
                     <option value="AU">Australia</option>
-                    <option value="IN">India</option>
-                    <option value="DE">Germany</option>
-                    <option value="FR">France</option>
-                    <option value="JP">Japan</option>
-                    <option value="BR">Brazil</option>
-                    <option value="CN">China</option>
-                    <option value="IT">Italy</option>
-                    <option value="ES">Spain</option>
                   </select>
                 </div>
               )}
