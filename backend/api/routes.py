@@ -28,10 +28,18 @@ async def generate_news(request: GenerateNewsRequest, background_tasks: Backgrou
     start_time = time.time()
     
     try:
-        # Step 1: AI selects best news sources
-        logger.info(f"Selecting sources for topics: {request.topics}")
+        # Step 1: AI selects best news sources.  Normalize topics by
+        # replacing the short term "ai" with the more descriptive
+        # "artificial intelligence" to improve search relevance.  We
+        # preserve the original topics list for display but use the
+        # transformed list for source selection and article retrieval.
+        transformed_topics = [
+            ("artificial intelligence" if t.lower().strip() == "ai" else t)
+            for t in request.topics
+        ]
+        logger.info(f"Selecting sources for topics: {transformed_topics}")
         selected_sources = await groq_service.select_news_sources(
-            topics=request.topics,
+            topics=transformed_topics,
             region=request.region,
             excluded_sources=request.excluded_sources or []
         )
@@ -85,22 +93,32 @@ async def generate_news(request: GenerateNewsRequest, background_tasks: Backgrou
             return True
 
         def is_article_relevant(article: Dict[str, Any], topics: List[str]) -> bool:
-            """Simple heuristic to check if an article mentions any of the user topics.
+            """Check if an article mentions any of the user topics or their synonyms.
 
-            Combines the article title and content into a single lower-case
-            string and checks if any topic string (also lower-case)
-            appears as a substring.  If no topics are provided, all
-            articles are considered relevant.
+            The function concatenates the article title and content into a
+            lower‑case string and checks for the presence of each topic
+            string or its known synonyms.  If the topics list is empty,
+            all articles are considered relevant.  Synonyms are used to
+            improve recall for terms like "artificial intelligence" which may
+            appear as "AI" or "machine learning" in headlines.
             """
             if not topics:
                 return True
             combined_text = f"{article.get('title', '')} {article.get('content', '')}".lower()
+            # Define simple synonyms for select topics
+            synonym_map = {
+                "artificial intelligence": ["artificial intelligence", "ai", "machine learning", "ml"],
+                "ai": ["artificial intelligence", "ai", "machine learning", "ml"],
+            }
             for t in topics:
                 t_lower = t.lower().strip()
                 if not t_lower:
                     continue
-                if t_lower in combined_text:
-                    return True
+                # Expand synonyms if available
+                synonyms = synonym_map.get(t_lower, [t_lower])
+                for syn in synonyms:
+                    if syn in combined_text:
+                        return True
             return False
 
         def is_recent_article(article: Dict[str, Any]) -> bool:
@@ -144,11 +162,11 @@ async def generate_news(request: GenerateNewsRequest, background_tasks: Backgrou
             else:
                 fetch_count = max(1, remaining * 2)
             try:
-                raw_articles = await news_aggregator.fetch_articles(
-                    topics=request.topics,
-                    sources=selected_sources,
-                    count=fetch_count
-                )
+            raw_articles = await news_aggregator.fetch_articles(
+                topics=transformed_topics,
+                sources=selected_sources,
+                count=fetch_count
+            )
             except Exception as e:
                 logger.error(f"Error fetching articles on attempt {attempt+1}: {e}")
                 continue
