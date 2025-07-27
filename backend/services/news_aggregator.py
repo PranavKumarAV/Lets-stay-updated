@@ -125,6 +125,12 @@ class NewsAggregator:
                 "Digital Correspondent"
             ],
         }
+
+        # Track whether the NewsAPI has responded with a rate‑limit error.
+        # When this flag is true, subsequent requests to the NewsAPI will be
+        # skipped for the remainder of the process to avoid repeated 429
+        # responses.  The flag resets when the application restarts.
+        self.newsapi_rate_limited: bool = False
     
     async def fetch_articles(self, topics: List[str], sources: List[Dict[str, Any]], count: int) -> List[Dict[str, Any]]:
         """
@@ -185,8 +191,12 @@ class NewsAggregator:
 
         collected: List[Dict[str, Any]] = []
 
-        # Attempt to fetch from NewsAPI if credentials and valid sources exist
-        if settings.NEWS_API_KEY and valid_source_ids:
+        # Attempt to fetch from NewsAPI if credentials and valid sources exist.
+        # Only one attempt is made; if it fails to return sufficient articles or
+        # raises a rate‑limit error, the aggregator will fall back entirely to
+        # RSS feeds.  Skip this call altogether if we have already hit a
+        # rate limit earlier.
+        if settings.NEWS_API_KEY and valid_source_ids and not self.newsapi_rate_limited:
             try:
                 real_articles = await self._fetch_real_articles(topics, sources, count)
                 if real_articles:
@@ -215,18 +225,23 @@ class NewsAggregator:
             logger.error(f"Error fetching RSS articles: {e}.")
 
         # If we still don't have enough articles, fetch from additional RSS feeds
+        # one by one until we collect at least ``count`` articles.  This
+        # incremental approach avoids fetching large batches from all feeds
+        # when only a few additional articles are needed.
         if len(collected) < count:
-            # Determine which sources haven't been queried yet
             selected_names = {s.get("name") for s in sources if s.get("name")}
-            additional_source_objs = [
-                {"name": name} for name in self.rss_feed_map.keys() if name not in selected_names
-            ]
-            try:
-                extra = await self._fetch_rss_articles(topics, additional_source_objs, count)
-                if extra:
-                    collected.extend(extra)
-            except Exception as e:
-                logger.error(f"Error fetching additional RSS articles: {e}.")
+            for name in self.rss_feed_map.keys():
+                if name in selected_names:
+                    continue
+                remaining = count - len(collected)
+                if remaining <= 0:
+                    break
+                try:
+                    extra = await self._fetch_rss_articles(topics, [{"name": name}], remaining)
+                    if extra:
+                        collected.extend(extra)
+                except Exception as e:
+                    logger.error(f"Error fetching RSS articles from additional source {name}: {e}.")
 
         # Deduplicate by URL
         unique_articles: List[Dict[str, Any]] = []
@@ -268,6 +283,12 @@ class NewsAggregator:
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
                 if resp.status != 200:
+                    # If a rate limit (HTTP 429) response is returned, set the
+                    # newsapi_rate_limited flag so future NewsAPI requests can be
+                    # skipped.  This prevents repeated queries once the free
+                    # quota has been exhausted.
+                    if resp.status == 429:
+                        self.newsapi_rate_limited = True
                     try:
                         text = await resp.text()
                     except Exception:
@@ -316,6 +337,13 @@ class NewsAggregator:
                     )
                     async with session.get(url) as resp:
                         if resp.status != 200:
+                            # If the NewsAPI request returns a rate limit error
+                            # (HTTP 429), mark the aggregator so that future
+                            # NewsAPI calls are skipped.  Otherwise just log the
+                            # error and continue.  Note that we still read
+                            # the response text to aid debugging.
+                            if resp.status == 429:
+                                self.newsapi_rate_limited = True
                             text = await resp.text()
                             logger.warning(f"NewsAPI responded with status {resp.status}: {text}")
                             continue
