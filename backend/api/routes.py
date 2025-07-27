@@ -162,11 +162,11 @@ async def generate_news(request: GenerateNewsRequest, background_tasks: Backgrou
             else:
                 fetch_count = max(1, remaining * 2)
             try:
-            raw_articles = await news_aggregator.fetch_articles(
-                topics=transformed_topics,
-                sources=selected_sources,
-                count=fetch_count
-            )
+                raw_articles = await news_aggregator.fetch_articles(
+                    topics=transformed_topics,
+                    sources=selected_sources,
+                    count=fetch_count
+                )
             except Exception as e:
                 logger.error(f"Error fetching articles on attempt {attempt+1}: {e}")
                 continue
@@ -183,7 +183,8 @@ async def generate_news(request: GenerateNewsRequest, background_tasks: Backgrou
                 if not url:
                     continue
                 # Filter out articles that do not mention the requested topics
-                if not is_article_relevant(article, request.topics):
+                # Use the transformed topics to improve recall (e.g. "AI" -> "artificial intelligence").
+                if not is_article_relevant(article, transformed_topics):
                     continue
                 # Skip articles older than one week
                 if not is_recent_article(article):
