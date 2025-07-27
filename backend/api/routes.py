@@ -206,25 +206,13 @@ async def generate_news(request: GenerateNewsRequest, background_tasks: Backgrou
             metadata["summary"] = summary_text
 
             try:
-                # Clamp the AI score to be within the expected range (1-100).  Some
-                # upstream ranking functions may return 0 or omit the score
-                # entirely.  The Pydantic schema requires a minimum of 1, so
-                # default to 70 if no score is provided and ensure the final
-                # value is at least 1.
-                raw_score = article.get("ai_score", 70)
-                try:
-                    score_int = int(raw_score)
-                except Exception:
-                    score_int = 70
-                clamped_score = max(1, min(score_int, 100))
-
                 stored_article = await db.create_news_article({
                     "title": article["title"],
                     "content": article["content"],
                     "url": article["url"],
                     "source": article["source"],
                     "topic": article.get("topic", request.topics[0]),
-                    "ai_score": clamped_score,
+                    "ai_score": article.get("ai_score", 70),
                     "published_at": article["published_at"],
                     "metadata": metadata
                 })

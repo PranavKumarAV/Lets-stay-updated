@@ -3,7 +3,6 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 import logging
 import aiohttp
-import os
 from ..core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -26,80 +25,31 @@ class NewsAggregator:
             "BBC News": "bbc-news",
             "NPR": "npr",
             "The Guardian": "the-guardian-uk",
-            # Extend the mapping with additional well-known outlets and
-            # sports sources.  These identifiers correspond to the
-            # ``sources`` parameter accepted by the NewsAPI "everything"
-            # endpoint.  Adding them here prevents invalid sources from
-            # being requested and triggering API errors.
-            "ESPN": "espn",
-            "BBC Sport": "bbc-sport",
-            "Reuters Sports": "reuters",  # reuse Reuters ID for sports
-            "Sports Illustrated": "sports-illustrated",
-            # Al Jazeera has a general English feed; no dedicated sports feed
-            "Al Jazeera": "al-jazeera-english",
-            "Al Jazeera English": "al-jazeera-english",
-            # Additional mainstream outlets used by the LLM for recommendations
-            "The New York Times": "the-new-york-times",
-            "The Washington Post": "the-washington-post",
-            "Wired": "wired",
-            "MIT Technology Review": "mit-technology-review",
-            "Reuters Sports": "reuters",  # alias for Reuters
+            # Add other known sources here as needed
         }
-
-        # Attempt to load any previously discovered API identifiers from a
-        # JSON file.  This allows the service to cache new source-to-ID
-        # mappings discovered at runtime.  If the file does not exist or
-        # cannot be parsed, silently ignore and proceed with the static
-        # mapping defined above.  The file is expected to contain a
-        # dictionary mapping source names to API identifiers.
-        try:
-            import json
-            cache_path = os.path.join(os.path.dirname(__file__), "newsapi_source_map.json")
-            if os.path.exists(cache_path):
-                with open(cache_path, "r", encoding="utf-8") as f:
-                    cached_map = json.load(f)
-                    if isinstance(cached_map, dict):
-                        self.newsapi_source_map.update({
-                            k: v for k, v in cached_map.items() if k not in self.newsapi_source_map
-                        })
-        except Exception as e:
-            logger.warning(f"Failed to load cached newsapi source map: {e}")
-
-    async def discover_api_for_source(self, source_name: str) -> Optional[str]:
-        """
-        Attempt to discover the official NewsAPI identifier for a given source
-        name.  This method is a placeholder for future AI-assisted search.
-
-        In a fully featured implementation, this function would leverage
-        external tools (such as the ``pomp`` or ``pompyt`` libraries, web
-        search APIs, or AI agents via LangChain) to search the internet
-        for a free and valid API corresponding to the news outlet.  For
-        example, it could query a search engine for "<source> NewsAPI id" or
-        scrape the outlet's developer documentation.  If a valid identifier
-        is found, it would be returned so it can be cached and used for
-        future requests.
-
-        Because this environment does not provide network access, the
-        current implementation logs the discovery attempt and returns
-        ``None``.  Developers may implement this method using an AI
-        assistant or web scraping tools in their own environment.
-
-        :param source_name: Human-readable source name (e.g., "BBC News")
-        :return: The corresponding NewsAPI source ID if found, otherwise None.
-        """
-        logger.info(f"Attempting to discover API ID for source '{source_name}' via AI agent...")
-        # TODO: Implement AI-assisted discovery of NewsAPI identifiers
-        return None
 
         # RSS feed URLs for each source.  These feeds can be used to fetch
         # headlines without requiring an API key.  Not all outlets provide
         # straightforward RSS feeds; some may require scraping or are omitted.
+        #
+        # This mapping has been extended to include several entertainment
+        # outlets commonly suggested by the language model.  Where possible
+        # official feeds were used; however, some sites do not expose
+        # first‑party RSS feeds.  For those, the entry is left absent and the
+        # outlet will simply be skipped during RSS fetching.
         self.rss_feed_map = {
             "Reuters": "http://feeds.reuters.com/reuters/topNews",
             "BBC News": "http://feeds.bbci.co.uk/news/rss.xml",
             "NPR": "https://feeds.npr.org/1001/rss.xml",
             "The Guardian": "https://www.theguardian.com/world/rss",
-            # Note: Associated Press does not provide a public RSS feed; omitted.
+            # Entertainment outlets
+            "The Hollywood Reporter": "https://www.hollywoodreporter.com/feed",
+            "Variety": "https://variety.com/feed",
+            "Los Angeles Times": "https://www.latimes.com/world-nation/rss2.0.xml",
+            "Rolling Stone": "https://www.rollingstone.com/feed",
+            "Deadline Hollywood": "https://deadline.com/feed",
+            "IndieWire": "https://www.indiewire.com/feed",
+            "Screen International": "https://screendaily.com/45202.rss",
         }
 
         # Mock article templates and author lists retained for fallback mode
@@ -178,26 +128,62 @@ class NewsAggregator:
     
     async def fetch_articles(self, topics: List[str], sources: List[Dict[str, Any]], count: int) -> List[Dict[str, Any]]:
         """
-        Simulate fetching articles from various news sources.
-        In production, this would make actual API calls to news services.
+        Orchestrate fetching of news articles for the given topics and sources.
+
+        This method first consults the NewsAPI for each requested source.  If a
+        source is not present in the built‑in mapping, it attempts to discover
+        the corresponding NewsAPI identifier using the ``discover_api_for_source``
+        helper.  Any discovered identifiers are cached for future use.  If the
+        caller has provided a valid NEWS_API_KEY and at least one source ID
+        resolves, the aggregator will attempt to fetch articles from the
+        NewsAPI.  Should the API return no articles or encounter an error,
+        fetching falls back to RSS feeds.  If RSS retrieval also fails or
+        yields no results, an empty list is returned.  Mock articles are
+        intentionally not generated.
+
+        :param topics: List of user topics
+        :param sources: List of source dicts containing at least a ``name`` key
+        :param count: The desired number of articles
+        :return: A list of news articles (possibly empty)
         """
-        # Build a list of recognized NewsAPI identifiers for the requested sources.
-        valid_source_ids = []
+        # Build a list of valid NewsAPI source identifiers.  Attempt to
+        # discover unknown identifiers when possible and cache new mappings.
+        valid_source_ids: List[tuple[str, str]] = []
         for source in sources:
             name = source.get("name")
+            if not name:
+                continue
             source_id = self.newsapi_source_map.get(name)
             if not source_id:
-                # Attempt to discover the API ID using an AI-assisted search.  If
-                # successful, cache the result and use it for this request.
-                discovered = await self.discover_api_for_source(name)
-                if discovered:
-                    self.newsapi_source_map[name] = discovered
-                    source_id = discovered
+                try:
+                    # Attempt to discover the API ID via NewsAPI sources
+                    discovered = await self.discover_api_for_source(name)
+                    if discovered:
+                        self.newsapi_source_map[name] = discovered
+                        source_id = discovered
+                        # Persist the new mapping to disk for future reuse
+                        try:
+                            import json, os
+                            cache_path = os.path.join(os.path.dirname(__file__), "newsapi_source_map.json")
+                            # Load existing cache if present
+                            cached_map: Dict[str, str] = {}
+                            if os.path.exists(cache_path):
+                                with open(cache_path, "r", encoding="utf-8") as f:
+                                    try:
+                                        cached_map = json.load(f) or {}
+                                    except Exception:
+                                        cached_map = {}
+                            cached_map[name] = discovered
+                            with open(cache_path, "w", encoding="utf-8") as f:
+                                json.dump(cached_map, f, indent=2)
+                        except Exception as e:
+                            logger.warning(f"Failed to persist discovered API mapping for {name}: {e}")
+                except Exception as e:
+                    logger.warning(f"Error discovering API ID for source '{name}': {e}")
             if source_id:
                 valid_source_ids.append((name, source_id))
 
-        # If a NEWS_API_KEY is provided and we have at least one recognized
-        # source, attempt to fetch real articles.  Otherwise, skip the API.
+        # Attempt to fetch from NewsAPI if credentials and valid sources exist
         if settings.NEWS_API_KEY and valid_source_ids:
             try:
                 real_articles = await self._fetch_real_articles(topics, sources, count)
@@ -210,7 +196,8 @@ class NewsAggregator:
                 )
             except Exception as e:
                 logger.error(f"Error fetching real articles: {e}. Falling back to RSS.")
-        # If the API call fails or no valid sources exist, try RSS feeds.
+
+        # Attempt to fetch from RSS feeds
         try:
             rss_articles = await self._fetch_rss_articles(topics, sources, count)
             if rss_articles:
@@ -222,9 +209,46 @@ class NewsAggregator:
             )
         except Exception as e:
             logger.error(f"Error fetching RSS articles: {e}.")
-        # Do not generate mock articles.  Returning an empty list signals the
-        # caller that no articles could be retrieved from real sources.
+
+        # Neither API nor RSS produced articles; return empty list
         return []
+
+    async def discover_api_for_source(self, source_name: str) -> Optional[str]:
+        """
+        Attempt to discover the NewsAPI source identifier for a human‑readable
+        source name.
+
+        This implementation queries the NewsAPI ``/v2/sources`` endpoint using
+        the provided ``NEWS_API_KEY`` and searches the returned list of
+        sources for one whose name contains the requested source_name.  If a
+        matching source is found, its ``id`` is returned.  When no API key
+        is available or no match exists, ``None`` is returned.
+
+        :param source_name: Human‑readable news outlet name (e.g. "BBC News")
+        :return: A NewsAPI source ID if discovered, otherwise None
+        """
+        # Without an API key we cannot query the NewsAPI for sources
+        api_key = settings.NEWS_API_KEY
+        if not api_key:
+            return None
+        # Normalize the search term for comparison
+        search_term = source_name.lower()
+        url = f"https://newsapi.org/v2/sources?apiKey={api_key}"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as resp:
+                if resp.status != 200:
+                    try:
+                        text = await resp.text()
+                    except Exception:
+                        text = ""
+                    logger.warning(f"NewsAPI sources request failed with status {resp.status}: {text}")
+                    return None
+                data = await resp.json()
+                for src in data.get("sources", []):
+                    name = src.get("name", "")
+                    if search_term in name.lower():
+                        return src.get("id")
+        return None
 
     async def _fetch_real_articles(self, topics: List[str], sources: List[Dict[str, Any]], count: int) -> List[Dict[str, Any]]:
         """
