@@ -1,20 +1,22 @@
 services:
   - type: web
     name: lets-stay-updated
-    env: node
+    # Use the Docker environment to build the frontend and serve the Python FastAPI backend.
+    env: docker
     plan: free
-    buildCommand: npm install && npm run build
-    startCommand: npm start
+    dockerfilePath: Dockerfile
     healthCheckPath: /health
     envVars:
-      - key: NODE_ENV
+      # Set the application environment to production for the FastAPI backend.
+      - key: ENVIRONMENT
         value: production
+      # Database URL is optional; leave unsynchronized to allow configuration via the dashboard.
       - key: DATABASE_URL
-        sync: false             
-      - key: LLM_PROVIDER
-        value: groq  # You can change this to 'openai', 'anthropic', etc.
+        sync: false
+      # API key for the Groq service (required for AI features).
       - key: GROQ_API_KEY
         sync: false
+      # Expose the port the FastAPI app listens on (must match Dockerfile).
       - key: PORT
         value: 5000
     autoDeploy: false
