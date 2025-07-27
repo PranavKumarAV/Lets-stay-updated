@@ -50,6 +50,23 @@ class NewsAggregator:
             "Deadline Hollywood": "https://deadline.com/feed",
             "IndieWire": "https://www.indiewire.com/feed",
             "Screen International": "https://screendaily.com/45202.rss",
+
+            # Technology and science outlets
+            # These feeds were sourced from publicly available RSS listings.
+            # The Verge: general technology and culture feed
+            "The Verge": "https://www.theverge.com/rss/index.xml",
+            # MIT Technology Review: top news feed
+            "MIT Technology Review": "https://www.technologyreview.com/topnews.rss",
+            # Wired: main RSS feed
+            "Wired": "https://www.wired.com/feed/rss",
+            # New Scientist: home page feed
+            "New Scientist": "https://www.newscientist.com/feed/home",
+            # IEEE Spectrum: full‑text feed
+            "IEEE Spectrum": "https://spectrum.ieee.org/rss/fulltext",
+            # Nature: research and news feed (science)
+            "Nature": "http://feeds.nature.com/nature/rss/current",
+            # Science Magazine: news from science
+            "Science Magazine": "https://www.sciencemag.org/rss/news_current.xml",
         }
 
         # Mock article templates and author lists retained for fallback mode
@@ -161,31 +178,33 @@ class NewsAggregator:
                 continue
             source_id = self.newsapi_source_map.get(name)
             if not source_id:
-                try:
-                    # Attempt to discover the API ID via NewsAPI sources
-                    discovered = await self.discover_api_for_source(name)
-                    if discovered:
-                        self.newsapi_source_map[name] = discovered
-                        source_id = discovered
-                        # Persist the new mapping to disk for future reuse
-                        try:
-                            import json, os
-                            cache_path = os.path.join(os.path.dirname(__file__), "newsapi_source_map.json")
-                            # Load existing cache if present
-                            cached_map: Dict[str, str] = {}
-                            if os.path.exists(cache_path):
-                                with open(cache_path, "r", encoding="utf-8") as f:
-                                    try:
-                                        cached_map = json.load(f) or {}
-                                    except Exception:
-                                        cached_map = {}
-                            cached_map[name] = discovered
-                            with open(cache_path, "w", encoding="utf-8") as f:
-                                json.dump(cached_map, f, indent=2)
-                        except Exception as e:
-                            logger.warning(f"Failed to persist discovered API mapping for {name}: {e}")
-                except Exception as e:
-                    logger.warning(f"Error discovering API ID for source '{name}': {e}")
+                # Skip API discovery if we have already hit the NewsAPI rate limit.
+                if not self.newsapi_rate_limited:
+                    try:
+                        # Attempt to discover the API ID via NewsAPI sources
+                        discovered = await self.discover_api_for_source(name)
+                        if discovered:
+                            self.newsapi_source_map[name] = discovered
+                            source_id = discovered
+                            # Persist the new mapping to disk for future reuse
+                            try:
+                                import json, os
+                                cache_path = os.path.join(os.path.dirname(__file__), "newsapi_source_map.json")
+                                # Load existing cache if present
+                                cached_map: Dict[str, str] = {}
+                                if os.path.exists(cache_path):
+                                    with open(cache_path, "r", encoding="utf-8") as f:
+                                        try:
+                                            cached_map = json.load(f) or {}
+                                        except Exception:
+                                            cached_map = {}
+                                cached_map[name] = discovered
+                                with open(cache_path, "w", encoding="utf-8") as f:
+                                    json.dump(cached_map, f, indent=2)
+                            except Exception as e:
+                                logger.warning(f"Failed to persist discovered API mapping for {name}: {e}")
+                    except Exception as e:
+                        logger.warning(f"Error discovering API ID for source '{name}': {e}")
             if source_id:
                 valid_source_ids.append((name, source_id))
 
@@ -246,11 +265,16 @@ class NewsAggregator:
         # Deduplicate by URL
         unique_articles: List[Dict[str, Any]] = []
         seen_urls = set()
+        seen_titles = set()
         for article in collected:
             url = article.get("url")
-            if not url or url in seen_urls:
+            title = (article.get("title") or "").strip().lower()
+            # Skip if URL or title is missing or we've seen it already
+            if not url or url in seen_urls or (title and title in seen_titles):
                 continue
             seen_urls.add(url)
+            if title:
+                seen_titles.add(title)
             unique_articles.append(article)
 
         # Sort by published date descending if available
@@ -416,10 +440,18 @@ class NewsAggregator:
                 if published_dt < datetime.utcnow() - timedelta(days=7):
                     continue
                 # Ensure the URL is absolute.  Some feeds return relative
-                # links; urljoin will resolve them against the feed URL.
-                from urllib.parse import urljoin
+                # links; urljoin will resolve them against a sensible base.
+                # Compute a base URL from the feed (scheme + host) to
+                # handle feeds where the feed URL includes a path.  Fallback
+                # to the feed URL itself if parsing fails.
+                from urllib.parse import urljoin, urlparse
                 link = entry.get("link", "") or ""
-                absolute_link = urljoin(feed_url, link)
+                try:
+                    parsed_feed = urlparse(feed_url)
+                    base = f"{parsed_feed.scheme}://{parsed_feed.netloc}"
+                    absolute_link = urljoin(base + "/", link)
+                except Exception:
+                    absolute_link = urljoin(feed_url, link)
                 articles.append({
                     "title": title,
                     "content": description,
