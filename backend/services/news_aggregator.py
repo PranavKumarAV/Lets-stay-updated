@@ -38,7 +38,9 @@ class NewsAggregator:
         # first‑party RSS feeds.  For those, the entry is left absent and the
         # outlet will simply be skipped during RSS fetching.
         self.rss_feed_map = {
-            "Reuters": "http://feeds.reuters.com/reuters/topNews",
+            # Use HTTPS for Reuters to avoid connection errors in environments
+            # that disallow plain HTTP connections
+            "Reuters": "https://feeds.reuters.com/reuters/topNews",
             "BBC News": "http://feeds.bbci.co.uk/news/rss.xml",
             "NPR": "https://feeds.npr.org/1001/rss.xml",
             "The Guardian": "https://www.theguardian.com/world/rss",
@@ -417,7 +419,23 @@ class NewsAggregator:
             feed_url = self.rss_feed_map.get(name)
             if not feed_url:
                 continue
-            feed = feedparser.parse(feed_url)
+            # Fetch the RSS feed content over HTTP.  Some feeds block
+            # default user agents, so specify a browser‑like agent.  If
+            # network access is unavailable the request will fail and the
+            # feed will be skipped.
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(feed_url, headers={"User-Agent": "Mozilla/5.0"}) as resp:
+                        if resp.status != 200:
+                            logger.warning(f"Failed to fetch RSS feed for {name}: HTTP {resp.status}")
+                            continue
+                        content = await resp.read()
+            except Exception as e:
+                logger.warning(f"Failed to fetch RSS feed for {name}: {e}")
+                continue
+            # Parse the feed from the downloaded content.  Use feedparser
+            # directly on the bytes to avoid additional network calls.
+            feed = feedparser.parse(content)
             if feed.bozo:
                 logger.warning(f"Failed to parse RSS feed for {name}: {feed.bozo_exception}")
                 continue
