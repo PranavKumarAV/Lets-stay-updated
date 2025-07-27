@@ -194,10 +194,10 @@ export function NewsResults({ preferences, onModifySearch }: NewsResultsProps) {
                   href={article.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-primary hover:text-blue-700 text-sm flex-shrink-0 ml-2"
+                  className="text-primary hover:text-blue-700 font-medium text-sm flex items-center space-x-1 flex-shrink-0 ml-2"
                 >
-                  Link
-                  <i className="fas fa-external-link-alt ml-1"></i>
+                  <span>Read Full Article</span>
+                  <i className="fas fa-external-link-alt"></i>
                 </a>
               </li>
             ))}

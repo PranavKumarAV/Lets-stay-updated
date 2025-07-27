@@ -194,7 +194,9 @@ async def generate_news(request: GenerateNewsRequest, background_tasks: Backgrou
                 valid_articles.append(article)
 
         if not valid_articles:
-            raise HTTPException(status_code=404, detail="No valid articles found for the specified criteria")
+            # If no articles were collected from the news aggregator, return a
+            # custom message indicating that the free tier limit may have been reached.
+            raise HTTPException(status_code=404, detail="Free tier limit reached, could fetch more articles summary")
 
         # Step 3: AI analyzes and ranks articles
         logger.info(f"Analyzing {len(valid_articles)} articles with AI")

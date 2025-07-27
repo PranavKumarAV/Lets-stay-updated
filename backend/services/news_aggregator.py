@@ -282,6 +282,12 @@ class NewsAggregator:
         # Sort by published date descending if available
         unique_articles.sort(key=lambda x: x.get("published_at", ""), reverse=True)
 
+        # Return an empty list if no articles were collected.  Downstream
+        # handlers can decide how to handle the absence of content (e.g., by
+        # returning a friendly message to the user).
+        if not unique_articles:
+            return []
+
         # Return up to twice the requested count to give AI more context
         return unique_articles[: count * 2]
 
@@ -402,93 +408,160 @@ class NewsAggregator:
     async def _fetch_rss_articles(self, topics: List[str], sources: List[Dict[str, Any]], count: int) -> List[Dict[str, Any]]:
         """
         Fetch articles from RSS feeds for the given sources and topics.  This
-        method does not require an API key.  It filters articles whose
-        titles or descriptions mention any of the topics.
+        implementation relies on feedparser to download and parse the feed
+        directly, mirroring the behaviour found in the semi‑stable reference
+        version of the project.  It filters entries to only include those
+        mentioning one of the user‑provided topics and ignores articles older
+        than one week.
 
         :param topics: List of user topics
         :param sources: List of source dicts
         :param count: Desired article count
         :return: List of articles
         """
-        import feedparser  # Local import to avoid dependency if unused
         articles: List[Dict[str, Any]] = []
+        # Determine how many articles to retrieve from each feed.  We fetch
+        # twice the per‑source count to allow for filtering below.
         max_per_source = max(1, count // max(1, len(sources)))
         topic_keywords = [t.lower() for t in topics]
+
+        # Attempt to import feedparser once.  If unavailable, we'll fall
+        # back to a manual RSS parser below.
+        try:
+            import feedparser  # type: ignore
+            feedparser_available = True
+        except ImportError:
+            feedparser_available = False
+
         for source in sources:
             name = source.get("name")
+            if not name:
+                continue
             feed_url = self.rss_feed_map.get(name)
             if not feed_url:
                 continue
-            # Fetch the RSS feed content over HTTP.  Some feeds block
-            # default user agents, so specify a browser‑like agent.  If
-            # network access is unavailable the request will fail and the
-            # feed will be skipped.
-            try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(feed_url, headers={"User-Agent": "Mozilla/5.0"}) as resp:
-                        if resp.status != 200:
-                            logger.warning(f"Failed to fetch RSS feed for {name}: HTTP {resp.status}")
-                            continue
-                        content = await resp.read()
-            except Exception as e:
-                logger.warning(f"Failed to fetch RSS feed for {name}: {e}")
-                continue
-            # Parse the feed from the downloaded content.  Use feedparser
-            # directly on the bytes to avoid additional network calls.
-            feed = feedparser.parse(content)
-            if feed.bozo:
-                logger.warning(f"Failed to parse RSS feed for {name}: {feed.bozo_exception}")
-                continue
-            for entry in feed.entries[: max_per_source * 2]:
-                title = entry.get("title", "")
-                description = entry.get("summary", "") or entry.get("description", "")
-                text = f"{title} {description}".lower()
-                if not any(kw in text for kw in topic_keywords):
-                    continue
-                published = entry.get("published") or entry.get("updated") or datetime.utcnow().isoformat()
-                # Convert RSS published date to datetime object if possible
+            entries: List[Any] = []
+            # Primary path: use feedparser if it's available to fetch and parse
+            if feedparser_available:
                 try:
-                    published_dt = datetime(*entry.published_parsed[:6]) if hasattr(entry, 'published_parsed') and entry.published_parsed else datetime.fromisoformat(published)
-                except Exception:
+                    # Use feedparser to fetch and parse the RSS feed.  Pass a
+                    # browser‑like User‑Agent header to reduce the chance of being
+                    # blocked by some servers.  Feedparser accepts a
+                    # ``request_headers`` argument for this purpose.
+                    feed = feedparser.parse(feed_url, request_headers={"User-Agent": "Mozilla/5.0"})  # type: ignore
+                    # Skip malformed feeds
+                    if getattr(feed, "bozo", False):
+                        exc = getattr(feed, "bozo_exception", None)
+                        logger.warning(f"Failed to parse RSS feed for {name}: {exc}")
+                        continue
+                    entries = feed.entries
+                except Exception as e:
+                    logger.warning(f"Failed to fetch or parse RSS feed for {name}: {e}")
+                    # Fall through to manual parsing
+            # Fallback path: manually fetch and parse the RSS feed if feedparser
+            # is not available or failed above.
+            if not entries:
+                try:
+                    from aiohttp import ClientSession
+                    from xml.etree import ElementTree as ET
+                    from email.utils import parsedate_to_datetime
+                    async with ClientSession() as session:
+                        async with session.get(feed_url, headers={"User-Agent": "Mozilla/5.0"}) as resp:
+                            if resp.status != 200:
+                                logger.warning(f"Failed to fetch RSS feed for {name}: HTTP {resp.status}")
+                                continue
+                            content = await resp.read()
+                    # Parse XML
                     try:
-                        published_dt = datetime.fromisoformat(published)
+                        root = ET.fromstring(content)
+                    except Exception as e:
+                        logger.warning(f"Failed to parse RSS XML for {name}: {e}")
+                        continue
+                    # RSS 2.0 items are under channel/item; Atom entries under feed/entry
+                    items = root.findall('.//item')
+                    if not items:
+                        items = root.findall('.//entry')
+                    for item in items:
+                        title = (item.findtext('title') or '').strip()
+                        description = (item.findtext('description') or item.findtext('summary') or '').strip()
+                        # Some Atom feeds use <content> for full description
+                        if not description:
+                            desc_elem = item.find('content')
+                            description = (desc_elem.text or '').strip() if desc_elem is not None else ''
+                        pub_str = item.findtext('pubDate') or item.findtext('published') or item.findtext('updated')
+                        # Attempt to parse publication date using email.utils helper
+                        if pub_str:
+                            try:
+                                pub_dt = parsedate_to_datetime(pub_str)
+                                # Remove timezone info for comparison if present
+                                published_dt = pub_dt.replace(tzinfo=None)
+                            except Exception:
+                                published_dt = datetime.utcnow()
+                        else:
+                            published_dt = datetime.utcnow()
+                        entries.append({
+                            'title': title,
+                            'description': description,
+                            'summary': description,
+                            'link': None,  # placeholder
+                            'published_dt': published_dt
+                        })
+                    # Extract link separately because <link> structure can vary
+                    for idx, item in enumerate(items):
+                        link = ''
+                        link_elem = item.find('link')
+                        if link_elem is not None:
+                            # Atom feeds often store the link URL in the href attribute
+                            link = link_elem.get('href') or (link_elem.text or '')
+                        entries[idx]['link'] = link
+                except Exception as e:
+                    logger.warning(f"Error fetching/parsing RSS feed for {name}: {e}")
+                    continue
+            # Process each entry (from either feedparser or manual parsing)
+            for entry in entries[: max_per_source * 2]:
+                # When using manual parsing, entry is a dict we created above
+                # otherwise it's a feedparser entry object.  Normalize fields.
+                if isinstance(entry, dict):
+                    title = entry.get('title', '')
+                    description = entry.get('description', '') or entry.get('summary', '')
+                    published_dt = entry.get('published_dt') or datetime.utcnow()
+                    link = entry.get('link', '') or ''
+                else:
+                    title = entry.get("title", "")
+                    description = entry.get("summary", "") or entry.get("description", "")
+                    published_raw = entry.get("published") or entry.get("updated")
+                    # Parse date using feedparser's structured tuple if available
+                    try:
+                        if hasattr(entry, "published_parsed") and entry.published_parsed:
+                            published_dt = datetime(*entry.published_parsed[:6])
+                        elif published_raw:
+                            published_dt = datetime.fromisoformat(published_raw)
+                        else:
+                            published_dt = datetime.utcnow()
                     except Exception:
                         published_dt = datetime.utcnow()
-                # Skip entries older than seven days
+                    link = entry.get("link", "") or ""
+                # Filter by topics if specified
+                text = f"{title} {description}".lower()
+                if topic_keywords and not any(kw in text for kw in topic_keywords):
+                    continue
+                # Skip articles older than seven days
                 if published_dt < datetime.utcnow() - timedelta(days=7):
                     continue
-                # Ensure the URL is absolute.  Some feeds return relative
-                # links; urljoin will resolve them against a sensible base.
-                # Compute a base URL from the feed (scheme + host) to
-                # handle feeds where the feed URL includes a path.  Fallback
-                # to the feed URL itself if parsing fails.
-                from urllib.parse import urljoin, urlparse
-                link = entry.get("link", "") or ""
-                try:
-                    parsed_feed = urlparse(feed_url)
-                    base = f"{parsed_feed.scheme}://{parsed_feed.netloc}"
-                    absolute_link = urljoin(base + "/", link)
-                except Exception:
-                    absolute_link = urljoin(feed_url, link)
-                # Some feeds return protocol‑relative or malformed links (e.g.
-                # starting with `//` or missing scheme).  If the resulting
-                # link doesn't start with http or https, attempt to prefix
-                # the scheme from the feed URL.
-                if not absolute_link.startswith("http"):
-                    scheme = parsed_feed.scheme if 'parsed_feed' in locals() else 'https'
-                    absolute_link = f"{scheme}://{absolute_link.lstrip('/') }"
                 articles.append({
                     "title": title,
                     "content": description,
-                    "url": absolute_link,
+                    "url": link,
                     "source": name,
                     "published_at": published_dt.isoformat(),
                     "metadata": {
                         "rss": True,
                     },
                 })
+
         # Sort by published date descending
         articles.sort(key=lambda x: x.get("published_at", ""), reverse=True)
+        # Return twice the requested count to allow for downstream ranking
         return articles[: count * 2]
 
     def _generate_mock_articles(self, topics: List[str], sources: List[Dict[str, Any]], count: int) -> List[Dict[str, Any]]:
