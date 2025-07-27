@@ -1,41 +1,41 @@
-# Build frontend
+# Step 1: Build the frontend
 FROM node:18-alpine AS frontend-builder
 
-WORKDIR /app/client
-COPY client/package*.json ./
-RUN npm ci --only=production
-COPY client/ ./
-RUN npm run build
+# Set working dir to project root (since package.json is here)
+WORKDIR /app
 
-# Backend
+COPY package*.json ./
+RUN npm install --omit=dev
+
+COPY ./client ./client
+RUN npm run build --prefix ./client
+
+# Step 2: Build the Python backend
 FROM python:3.11-slim
 
 WORKDIR /app
 
-# System deps
-RUN apt-get update && apt-get install -y \
-    curl && rm -rf /var/lib/apt/lists/*
+# System dependencies
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
-# Python deps
+# Backend dependencies
 COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Backend code
+# Copy backend code
 COPY backend/ ./
 
-# Frontend build
+# Copy built frontend from previous stage
 COPY --from=frontend-builder /app/client/dist ./dist
 
-# Non-root user
+# Create non-root user
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
 USER appuser
 
-# Expose port
+# Port and health
 EXPOSE 5000
-
-# Healthcheck
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD curl -f http://localhost:5000/health || exit 1
 
-# Run FastAPI app located in backend/utils/main.py
-CMD ["uvicorn", "utils.main:app", "--host", "0.0.0.0", "--port", "5000"]
+# Start app
+CMD ["python", "main.py"]
