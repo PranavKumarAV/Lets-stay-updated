@@ -470,6 +470,13 @@ class NewsAggregator:
                     absolute_link = urljoin(base + "/", link)
                 except Exception:
                     absolute_link = urljoin(feed_url, link)
+                # Some feeds return protocol‑relative or malformed links (e.g.
+                # starting with `//` or missing scheme).  If the resulting
+                # link doesn't start with http or https, attempt to prefix
+                # the scheme from the feed URL.
+                if not absolute_link.startswith("http"):
+                    scheme = parsed_feed.scheme if 'parsed_feed' in locals() else 'https'
+                    absolute_link = f"{scheme}://{absolute_link.lstrip('/') }"
                 articles.append({
                     "title": title,
                     "content": description,
