@@ -17,5 +17,5 @@ yarn-error.log*
 .vscode
 .idea
 
-# DO NOT IGNORE dist — it’s needed in final image!
-# dist
+# DO NOT IGNORE dist — it's built inside the container and needed
+# (leave dist alone — do not add it here)

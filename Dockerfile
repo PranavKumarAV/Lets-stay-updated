@@ -23,8 +23,8 @@ RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy entire backend source
-COPY backend/ ./  # includes main.py, utils/, etc.
+# Copy backend code (including main.py and utils/)
+COPY backend/ ./
 
 # Copy frontend build output
 COPY --from=frontend-builder /app/dist ./dist
@@ -39,5 +39,5 @@ EXPOSE 5000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD curl -f http://localhost:5000/health || exit 1
 
-# Corrected CMD path
+# Run FastAPI app
 CMD ["python", "main.py"]
