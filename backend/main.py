@@ -16,6 +16,7 @@ import logging
 from .api.routes import router as api_router
 from .core.config import settings
 from .core.database import init_db
+from .services.llm_service import llm_service
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -26,8 +27,16 @@ async def lifespan(app: FastAPI):
     """Startup and shutdown logic for the FastAPI app."""
     logger.info("🚀 Starting up the application...")
     await init_db()
-    yield
-    logger.info("🛑 Shutting down the application...")
+    try:
+        yield
+    finally:
+        # Ensure the LLM service session is closed on shutdown to avoid
+        # unclosed aiohttp client warnings.
+        try:
+            await llm_service.close()
+        except Exception as e:
+            logger.warning(f"Error closing LLM service session: {e}")
+        logger.info("🛑 Shutting down the application...")
 
 # Initialize FastAPI app
 app = FastAPI(
