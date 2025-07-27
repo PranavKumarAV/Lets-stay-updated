@@ -54,23 +54,22 @@ async def health_check():
 # Mount all API routes
 app.include_router(api_router, prefix="/api")
 
-# Serve frontend static files if in production mode
-if settings.ENVIRONMENT == "production":
-    static_dir = os.path.join(os.path.dirname(__file__), "..", "dist", "public")
-    
-    if os.path.exists(static_dir):
-        app.mount("/static", StaticFiles(directory=static_dir), name="static")
-        
-        @app.get("/{full_path:path}")
-        async def serve_react_app(full_path: str):
-            """Serve index.html for non-API routes (React SPA)"""
-            if full_path.startswith("api/"):
-                raise HTTPException(status_code=404, detail="Not found")
-            
-            index_file = os.path.join(static_dir, "index.html")
-            if os.path.exists(index_file):
-                return FileResponse(index_file)
-            raise HTTPException(status_code=404, detail="Not found")
+# Serve frontend static files for the React SPA.
+#
+# The compiled frontend assets are placed in ``dist/public`` by the Vite
+# build.  We mount this directory as a static file application at the
+# root path so that visiting ``/`` returns the ``index.html`` file and
+# any nested routes are handled client-side.  API routes defined above
+# (under the ``/api`` prefix) take precedence over this mounted
+# application, ensuring that ``/api`` still serves JSON.
+static_dir = os.path.join(os.path.dirname(__file__), "..", "dist", "public")
+if os.path.exists(static_dir):
+    # ``html=True`` tells FastAPI to serve ``index.html`` when the root
+    # path is requested or when a non-existent file is requested,
+    # enabling client-side routing in the React SPA.
+    app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
+else:
+    logger.warning("Static directory %s does not exist; the frontend may not be served.", static_dir)
 
 # Dev entry point
 if __name__ == "__main__":
