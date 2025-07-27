@@ -171,16 +171,17 @@ async def generate_news(request: GenerateNewsRequest, background_tasks: Backgrou
                 logger.error(f"Error fetching articles on attempt {attempt+1}: {e}")
                 continue
             # Validate each article in the returned batch
+            # Maintain a set of seen titles (lowercase) to avoid duplicates
             for article in raw_articles:
                 # Stop if we've reached our target
                 if len(valid_articles) >= desired_count:
                     break
                 url = article.get("url", "")
-                # Skip articles with missing URLs entirely.  Duplicate
-                # URLs are allowed because the news aggregator may
-                # reuse the same slug across generated articles.  In
-                # practice the AI ranking step will handle duplicates.
-                if not url:
+                title = (article.get("title") or "").strip().lower()
+                # Skip articles with missing URLs or titles, or duplicates
+                if not url or not title:
+                    continue
+                if any(existing.get("title", "").strip().lower() == title for existing in valid_articles):
                     continue
                 # Filter out articles that do not mention the requested topics
                 # Use the transformed topics to improve recall (e.g. "AI" -> "artificial intelligence").
