@@ -25,7 +25,18 @@ class NewsAggregator:
             "BBC News": "bbc-news",
             "NPR": "npr",
             "The Guardian": "the-guardian-uk",
-            # Add other known sources here as needed
+            # Extend the mapping with additional well-known outlets and
+            # sports sources.  These identifiers correspond to the
+            # ``sources`` parameter accepted by the NewsAPI "everything"
+            # endpoint.  Adding them here prevents invalid sources from
+            # being requested and triggering API errors.
+            "ESPN": "espn",
+            "BBC Sport": "bbc-sport",
+            "Reuters Sports": "reuters",  # reuse Reuters ID for sports
+            "Sports Illustrated": "sports-illustrated",
+            # Al Jazeera has a general English feed; no dedicated sports feed
+            "Al Jazeera": "al-jazeera-english",
+            "Al Jazeera English": "al-jazeera-english",
         }
 
         # RSS feed URLs for each source.  These feeds can be used to fetch
@@ -118,20 +129,40 @@ class NewsAggregator:
         Simulate fetching articles from various news sources.
         In production, this would make actual API calls to news services.
         """
-        # If a NEWS_API_KEY is provided, fetch real articles from the news API.
+        # If a NEWS_API_KEY is provided, attempt to fetch real articles from the
+        # NewsAPI.  Even if the call succeeds, ensure that at least some
+        # articles are returned; otherwise fall through to RSS/mock.  This
+        # prevents scenarios where the API returns an empty set due to
+        # unrecognized sources or other errors but does not raise an
+        # exception.  If any exception occurs during the API call, it is
+        # caught and logged before falling back.
         if settings.NEWS_API_KEY:
             try:
-                return await self._fetch_real_articles(topics, sources, count)
+                real_articles = await self._fetch_real_articles(topics, sources, count)
+                if real_articles:
+                    return real_articles
+                logger.warning(
+                    "NewsAPI returned no articles for topics %s and sources %s; falling back to RSS/mock.",
+                    topics,
+                    [s.get("name") for s in sources],
+                )
             except Exception as e:
                 logger.error(f"Error fetching real articles: {e}. Falling back to RSS or mock data.")
-        # If no API key or API fetch fails, try RSS feeds.  If RSS fails,
-        # generate mock articles.
+        # If no API key or API fetch fails/returns no articles, try RSS feeds.
+        # Only return RSS results if at least one article is fetched.  On
+        # failure, log and proceed to mock data.
         try:
             rss_articles = await self._fetch_rss_articles(topics, sources, count)
             if rss_articles:
                 return rss_articles
+            logger.warning(
+                "RSS feeds returned no articles for topics %s and sources %s; falling back to mock data.",
+                topics,
+                [s.get("name") for s in sources],
+            )
         except Exception as e:
             logger.error(f"Error fetching RSS articles: {e}. Falling back to mock data.")
+        # As a last resort, generate mock articles.
         return self._generate_mock_articles(topics, sources, count)
 
     async def _fetch_real_articles(self, topics: List[str], sources: List[Dict[str, Any]], count: int) -> List[Dict[str, Any]]:
