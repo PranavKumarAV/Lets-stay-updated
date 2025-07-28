@@ -32,7 +32,7 @@ async def lifespan(app: FastAPI):
 # Initialize FastAPI app
 app = FastAPI(
     title="Let's Stay Updated - AI News Curation",
-    description="AI-powered news aggregation and curation platform using Groq",
+    description="AI-powered news aggregation and curation platform using GroqCloud",
     version="1.0.0",
     lifespan=lifespan
 )

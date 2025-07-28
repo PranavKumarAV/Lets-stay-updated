@@ -41,6 +41,13 @@ class Settings:
     # enable real news fetching.
     NEWS_API_KEY: Optional[str] = field(default_factory=lambda: os.getenv("NEWS_API_KEY"))
 
+    # Support multiple NewsAPI keys for quota rotation.  You can provide
+    # additional keys as environment variables ``NEWS_API_KEY_1``,
+    # and ``NEWS_API_KEY_2``.  These will be used in
+    # sequence when the primary key is exhausted.
+    NEWS_API_KEY_1: Optional[str] = field(default_factory=lambda: os.getenv("NEWS_API_KEY_1"))
+    NEWS_API_KEY_2: Optional[str] = field(default_factory=lambda: os.getenv("NEWS_API_KEY_2"))
+
     # Compatibility with legacy usage
     MAX_TOKENS: int = field(init=False)
     TEMPERATURE: float = field(init=False)

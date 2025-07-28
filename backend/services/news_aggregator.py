@@ -109,6 +109,26 @@ class NewsAggregator:
         # skipped for the remainder of the process to avoid repeated 429
         # responses.  The flag resets when the application restarts.
         self.newsapi_rate_limited: bool = False
+
+        # Collect all available NewsAPI keys for quota rotation.  The primary
+        # ``NEWS_API_KEY`` is always considered first.  Additional keys can
+        # be provided via ``NEWS_API_KEY_1``, and ``NEWS_API_KEY_2``
+        # in the environment (see ``backend/core/config.py``).
+        self.newsapi_keys: List[str] = []
+        if settings.NEWS_API_KEY:
+            self.newsapi_keys.append(settings.NEWS_API_KEY)
+        # Append any numbered keys if present
+        for i in range(1, 3):
+            try:
+                key = getattr(settings, f"NEWS_API_KEY_{i}")
+            except AttributeError:
+                key = None
+            if key:
+                self.newsapi_keys.append(key)
+        # Index used to track which key is currently active when
+        # sequentially iterating through multiple keys.  This is not
+        # currently used directly but retained for future enhancement.
+        self._api_key_index: int = 0
     
     async def _legacy_fetch_articles(self, topics: List[str], sources: List[Dict[str, Any]], count: int) -> List[Dict[str, Any]]:
         """
@@ -183,38 +203,12 @@ class NewsAggregator:
             except Exception as e:
                 logger.error(f"Error fetching real articles: {e}.")
 
-        # Fetch from RSS feeds for the user‑selected sources
-        try:
-            rss_articles = await self._fetch_rss_articles(topics, sources, count)
-            if rss_articles:
-                collected.extend(rss_articles)
-            else:
-                logger.warning(
-                    "RSS feeds returned no articles for topics %s and sources %s.",
-                    topics,
-                    [s.get("name") for s in sources],
-                )
-        except Exception as e:
-            logger.error(f"Error fetching RSS articles: {e}.")
-
-        # If we still don't have enough articles, fetch from additional RSS feeds
-        # one by one until we collect at least ``count`` articles.  This
-        # incremental approach avoids fetching large batches from all feeds
-        # when only a few additional articles are needed.
-        if len(collected) < count:
-            selected_names = {s.get("name") for s in sources if s.get("name")}
-            for name in self.rss_feed_map.keys():
-                if name in selected_names:
-                    continue
-                remaining = count - len(collected)
-                if remaining <= 0:
-                    break
-                try:
-                    extra = await self._fetch_rss_articles(topics, [{"name": name}], remaining)
-                    if extra:
-                        collected.extend(extra)
-                except Exception as e:
-                    logger.error(f"Error fetching RSS articles from additional source {name}: {e}.")
+        # RSS fetching has been removed.  Previously, when no real articles
+        # were found for the selected sources, the aggregator would fall back
+        # to RSS feeds.  Since the application now relies solely on the
+        # NewsAPI, this section has been intentionally left blank.  If no
+        # articles are obtained from the NewsAPI, the collected list will
+        # remain empty and downstream handlers will handle the situation.
 
         # Deduplicate by URL
         unique_articles: List[Dict[str, Any]] = []
@@ -255,70 +249,79 @@ class NewsAggregator:
         :param language: ISO language code (e.g. "en")
         :return: List of article dicts
         """
-        api_key = settings.NEWS_API_KEY
-        # If no API key is configured or a previous request hit the rate limit,
-        # skip calling the NewsAPI entirely
-        if not api_key or self.newsapi_rate_limited:
+        # Skip if we've already marked the API as rate-limited
+        if self.newsapi_rate_limited:
             return []
         # Compute the date range for the past seven days
         from_date = (datetime.utcnow() - timedelta(days=7)).strftime("%Y-%m-%d")
-        # Request twice the desired count to give more context
         page_size = max(1, min(count * 2, 100))
-        url = (
-            "https://newsapi.org/v2/everything"
-            f"?q={aiohttp.helpers.quote(topic)}"
-            f"&language={language}"
-            f"&from={from_date}"
-            f"&sortBy=popularity"
-            f"&pageSize={page_size}"
-            f"&apiKey={api_key}"
-        )
-        articles: List[Dict[str, Any]] = []
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url) as resp:
-                    # Handle non‑200 responses gracefully
-                    if resp.status != 200:
-                        text = await resp.text()
-                        logger.warning(f"NewsAPI /v2/everything responded with status {resp.status}: {text}")
-                        # Mark as rate limited if we hit the 429 quota limit
+        all_articles: List[Dict[str, Any]] = []
+        # Track whether we encountered a 429 across all keys
+        encountered_rate_limit = True
+        # Iterate through all available API keys until we get a successful response
+        for key in self.newsapi_keys:
+            if not key:
+                continue
+            url = (
+                "https://newsapi.org/v2/everything"
+                f"?q={aiohttp.helpers.quote(topic)}"
+                f"&language={language}"
+                f"&from={from_date}"
+                f"&sortBy=popularity"
+                f"&pageSize={page_size}"
+                f"&apiKey={key}"
+            )
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url) as resp:
                         if resp.status == 429:
-                            self.newsapi_rate_limited = True
-                        return []
-                    data = await resp.json()
-                    for item in data.get("articles", []):
-                        # Skip articles published more than seven days ago
-                        published_at = item.get("publishedAt") or datetime.utcnow().isoformat()
-                        try:
-                            published_dt = datetime.fromisoformat(published_at.rstrip("Z"))
-                        except Exception:
-                            published_dt = datetime.utcnow()
-                        if published_dt < datetime.utcnow() - timedelta(days=7):
+                            # Try the next key if available
+                            text = await resp.text()
+                            logger.warning(f"NewsAPI key exhausted (429): {text}")
                             continue
-                        articles.append({
-                            "title": item.get("title", ""),
-                            "content": item.get("description") or item.get("content") or "",
-                            "url": item.get("url", ""),
-                            "source": item.get("source", {}).get("name", ""),
-                            "published_at": published_at,
-                            "metadata": {
-                                "author": item.get("author"),
-                                "source_name": item.get("source", {}).get("name"),
-                            },
-                        })
-        except Exception as e:
-            logger.error(f"Error fetching global articles: {e}")
+                        encountered_rate_limit = False
+                        if resp.status != 200:
+                            text = await resp.text()
+                            logger.warning(f"NewsAPI /v2/everything responded with status {resp.status}: {text}")
+                            break
+                        data = await resp.json()
+                        for item in data.get("articles", []):
+                            published_at = item.get("publishedAt") or datetime.utcnow().isoformat()
+                            try:
+                                published_dt = datetime.fromisoformat(published_at.rstrip("Z"))
+                            except Exception:
+                                published_dt = datetime.utcnow()
+                            if published_dt < datetime.utcnow() - timedelta(days=7):
+                                continue
+                            all_articles.append({
+                                "title": item.get("title", ""),
+                                "content": item.get("description") or item.get("content") or "",
+                                "url": item.get("url", ""),
+                                "source": item.get("source", {}).get("name", ""),
+                                "published_at": published_at,
+                                "metadata": {
+                                    "author": item.get("author"),
+                                    "source_name": item.get("source", {}).get("name"),
+                                },
+                            })
+                        # Successful fetch; break the loop
+                        break
+            except Exception as e:
+                logger.error(f"Error fetching global articles with key {key}: {e}")
+                continue
+        # If all keys resulted in 429, mark the service as rate limited
+        if encountered_rate_limit:
+            self.newsapi_rate_limited = True
             return []
-        # Deduplicate by URL
+        # Deduplicate and sort
         unique: List[Dict[str, Any]] = []
         seen = set()
-        for art in articles:
+        for art in all_articles:
             url = art.get("url")
             if not url or url in seen:
                 continue
             seen.add(url)
             unique.append(art)
-        # Sort by published date descending
         unique.sort(key=lambda x: x.get("published_at", ""), reverse=True)
         return unique[:count]
 
@@ -336,66 +339,72 @@ class NewsAggregator:
         :param language: ISO language code
         :return: List of article dicts
         """
-        api_key = settings.NEWS_API_KEY
-        if not api_key or self.newsapi_rate_limited or not country:
+        if self.newsapi_rate_limited or not country:
             return []
         # Derive a NewsAPI category from the topic using the existing helper.
-        # Only use the category parameter if it maps to a recognised NewsAPI
-        # category; otherwise omit it and rely on the `q` parameter.
         derived_category = self._get_topic_category(topic)
         valid_categories = {"business", "entertainment", "general", "health", "science", "sports", "technology"}
         category_param = ""
-        if derived_category.lower() in valid_categories:
+        if derived_category and derived_category.lower() in valid_categories:
             category_param = f"&category={aiohttp.helpers.quote(derived_category.lower())}"
-        # Request twice the desired count to allow for deduplication
         page_size = max(1, min(count * 2, 100))
-        # Build the URL with mandatory country, optional query and category
-        url = (
-            "https://newsapi.org/v2/top-headlines"
-            f"?country={country.upper()}"
-            f"&language={language}"
-            f"&pageSize={page_size}"
-            f"{category_param}"
-            f"&q={aiohttp.helpers.quote(topic)}"
-            f"&apiKey={api_key}"
-        )
-        articles: List[Dict[str, Any]] = []
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url) as resp:
-                    if resp.status != 200:
-                        text = await resp.text()
-                        logger.warning(f"NewsAPI /v2/top-headlines responded with status {resp.status}: {text}")
+        all_articles: List[Dict[str, Any]] = []
+        encountered_rate_limit = True
+        for key in self.newsapi_keys:
+            if not key:
+                continue
+            url = (
+                "https://newsapi.org/v2/top-headlines"
+                f"?country={country.upper()}"
+                f"&language={language}"
+                f"&pageSize={page_size}"
+                f"{category_param}"
+                f"&q={aiohttp.helpers.quote(topic)}"
+                f"&apiKey={key}"
+            )
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url) as resp:
                         if resp.status == 429:
-                            self.newsapi_rate_limited = True
-                        return []
-                    data = await resp.json()
-                    for item in data.get("articles", []):
-                        published_at = item.get("publishedAt") or datetime.utcnow().isoformat()
-                        try:
-                            published_dt = datetime.fromisoformat(published_at.rstrip("Z"))
-                        except Exception:
-                            published_dt = datetime.utcnow()
-                        if published_dt < datetime.utcnow() - timedelta(days=7):
+                            text = await resp.text()
+                            logger.warning(f"NewsAPI key exhausted (429): {text}")
                             continue
-                        articles.append({
-                            "title": item.get("title", ""),
-                            "content": item.get("description") or item.get("content") or "",
-                            "url": item.get("url", ""),
-                            "source": item.get("source", {}).get("name", ""),
-                            "published_at": published_at,
-                            "metadata": {
-                                "author": item.get("author"),
-                                "source_name": item.get("source", {}).get("name"),
-                            },
-                        })
-        except Exception as e:
-            logger.error(f"Error fetching local headlines: {e}")
+                        encountered_rate_limit = False
+                        if resp.status != 200:
+                            text = await resp.text()
+                            logger.warning(f"NewsAPI /v2/top-headlines responded with status {resp.status}: {text}")
+                            break
+                        data = await resp.json()
+                        for item in data.get("articles", []):
+                            published_at = item.get("publishedAt") or datetime.utcnow().isoformat()
+                            try:
+                                published_dt = datetime.fromisoformat(published_at.rstrip("Z"))
+                            except Exception:
+                                published_dt = datetime.utcnow()
+                            if published_dt < datetime.utcnow() - timedelta(days=7):
+                                continue
+                            all_articles.append({
+                                "title": item.get("title", ""),
+                                "content": item.get("description") or item.get("content") or "",
+                                "url": item.get("url", ""),
+                                "source": item.get("source", {}).get("name", ""),
+                                "published_at": published_at,
+                                "metadata": {
+                                    "author": item.get("author"),
+                                    "source_name": item.get("source", {}).get("name"),
+                                },
+                            })
+                        break
+            except Exception as e:
+                logger.error(f"Error fetching local headlines with key {key}: {e}")
+                continue
+        if encountered_rate_limit:
+            self.newsapi_rate_limited = True
             return []
         # Deduplicate and sort
         unique: List[Dict[str, Any]] = []
         seen = set()
-        for art in articles:
+        for art in all_articles:
             url = art.get("url")
             if not url or url in seen:
                 continue
