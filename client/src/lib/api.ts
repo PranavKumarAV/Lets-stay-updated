@@ -27,7 +27,6 @@ export interface GenerateNewsRequest {
   country?: string;
   topics: string[];
   article_count: number;
-  excluded_sources?: string[];
 }
 
 export interface GenerateNewsResponse {
@@ -57,11 +56,10 @@ export const newsApi = {
     return response.json();
   },
 
-  async getSources(topics: string[], region: string, excludedSources: string[] = []): Promise<GetSourcesResponse> {
+  async getSources(topics: string[], region: string): Promise<GetSourcesResponse> {
     const response = await apiRequest("POST", `${API_BASE}/news/sources`, {
       topics,
       region,
-      excluded_sources: excludedSources
     });
     return response.json();
   },

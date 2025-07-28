@@ -23,7 +23,6 @@ export function NewsResults({ preferences, onModifySearch }: NewsResultsProps) {
         country: preferences.country,
         topics: preferences.topics,
         article_count: preferences.articleCount,
-        excluded_sources: preferences.excludedSources,
       });
     },
     retry: 1,

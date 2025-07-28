@@ -13,7 +13,6 @@ export interface UserPreferences {
   country?: string;
   topics: string[];
   articleCount: number;
-  excludedSources: string[];
 }
 
 export default function Home() {
@@ -22,11 +21,9 @@ export default function Home() {
     region: "",
     country: "",
     topics: [],
-    // Default to 25 articles for weekly summaries
     // Default to 10 articles for weekly summaries.  The user can
     // choose 5 or 15 on the next step if they prefer.
     articleCount: 10,
-    excludedSources: [],
   });
 
   const updatePreferences = (updates: Partial<UserPreferences>) => {

@@ -111,13 +111,64 @@ export function RegionSelection({ preferences, updatePreferences, onNext }: Regi
                     className="w-full h-10 px-3 py-2 border border-gray-300 rounded-md bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   >
                     <option value="">Select a country...</option>
-                    {/* Restrict to countries with robust news APIs and English language coverage.
-                       These options align with the sources available in the backend and
-                       reduce the likelihood of empty results. */}
-                    <option value="US">United States</option>
-                    <option value="CA">Canada</option>
-                    <option value="UK">United Kingdom</option>
+                    {/* Offer all countries supported by the NewsAPI.  Each option uses the
+                       official two‑letter ISO 3166‑1 alpha‑2 code as the value.  The
+                       NewsAPI will filter top headlines based on these codes for
+                       country‑specific searches.  See https://newsapi.org/docs/endpoints/top-headlines */}
+                    <option value="AE">United Arab Emirates</option>
+                    <option value="AR">Argentina</option>
+                    <option value="AT">Austria</option>
                     <option value="AU">Australia</option>
+                    <option value="BE">Belgium</option>
+                    <option value="BG">Bulgaria</option>
+                    <option value="BR">Brazil</option>
+                    <option value="CA">Canada</option>
+                    <option value="CH">Switzerland</option>
+                    <option value="CN">China</option>
+                    <option value="CO">Colombia</option>
+                    <option value="CU">Cuba</option>
+                    <option value="CZ">Czech Republic</option>
+                    <option value="DE">Germany</option>
+                    <option value="EG">Egypt</option>
+                    <option value="FR">France</option>
+                    <option value="GB">United Kingdom</option>
+                    <option value="GR">Greece</option>
+                    <option value="HK">Hong Kong</option>
+                    <option value="HU">Hungary</option>
+                    <option value="ID">Indonesia</option>
+                    <option value="IE">Ireland</option>
+                    <option value="IL">Israel</option>
+                    <option value="IN">India</option>
+                    <option value="IT">Italy</option>
+                    <option value="JP">Japan</option>
+                    <option value="KR">South Korea</option>
+                    <option value="LT">Lithuania</option>
+                    <option value="LV">Latvia</option>
+                    <option value="MA">Morocco</option>
+                    <option value="MX">Mexico</option>
+                    <option value="MY">Malaysia</option>
+                    <option value="NG">Nigeria</option>
+                    <option value="NL">Netherlands</option>
+                    <option value="NO">Norway</option>
+                    <option value="NZ">New Zealand</option>
+                    <option value="PH">Philippines</option>
+                    <option value="PL">Poland</option>
+                    <option value="PT">Portugal</option>
+                    <option value="RO">Romania</option>
+                    <option value="RS">Serbia</option>
+                    <option value="RU">Russia</option>
+                    <option value="SA">Saudi Arabia</option>
+                    <option value="SE">Sweden</option>
+                    <option value="SG">Singapore</option>
+                    <option value="SI">Slovenia</option>
+                    <option value="SK">Slovakia</option>
+                    <option value="TH">Thailand</option>
+                    <option value="TR">Turkey</option>
+                    <option value="TW">Taiwan</option>
+                    <option value="UA">Ukraine</option>
+                    <option value="US">United States</option>
+                    <option value="VE">Venezuela</option>
+                    <option value="ZA">South Africa</option>
                   </select>
                 </div>
               )}

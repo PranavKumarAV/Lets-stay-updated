@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { UserPreferences } from "@/pages/home";
 
 interface SourcePreferencesProps {
@@ -19,38 +18,19 @@ const articleCounts = [
   { value: 15, label: "In‑Depth" },
 ];
 
-const sources = [
-  { id: "reddit", name: "Reddit", icon: "fab fa-reddit", color: "orange" },
-  { id: "substack", name: "Substack", icon: "fas fa-newspaper", color: "green" },
-  { id: "traditional", name: "Traditional Media", icon: "fas fa-globe", color: "gray" },
-  { id: "bbc", name: "BBC News", icon: "fas fa-broadcast-tower", color: "red" },
-  { id: "reuters", name: "Reuters", icon: "fas fa-globe-americas", color: "blue" },
-  { id: "npr", name: "NPR", icon: "fas fa-microphone", color: "purple" },
-];
+// No source checkboxes are defined because custom source exclusions have been removed.
 
 export function SourcePreferences({ preferences, updatePreferences, onGenerate }: SourcePreferencesProps) {
   const [articleCount, setArticleCount] = useState(preferences.articleCount);
-  const [excludedSources, setExcludedSources] = useState<string[]>(preferences.excludedSources);
 
   // Determine if the user selected a country-specific (local) news region.  In
-  // older versions we disabled custom source selection for local mode.  The
-  // application now relies solely on the NewsAPI without per-source controls,
-  // so this flag is currently unused but retained for potential future
-  // enhancements.
+  // earlier versions we disabled custom source selection for local mode.  The
+  // application now relies solely on the NewsAPI without per-source controls.
   const isLocal = preferences.region === "country";
 
   const handleArticleCountChange = (count: number) => {
     setArticleCount(count);
     updatePreferences({ articleCount: count });
-  };
-
-  const handleSourceToggle = (sourceId: string, checked: boolean) => {
-    const updated = checked 
-      ? [...excludedSources, sourceId]
-      : excludedSources.filter(s => s !== sourceId);
-    
-    setExcludedSources(updated);
-    updatePreferences({ excludedSources: updated });
   };
 
   return (
