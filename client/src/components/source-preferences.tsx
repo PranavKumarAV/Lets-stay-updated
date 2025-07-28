@@ -32,6 +32,12 @@ export function SourcePreferences({ preferences, updatePreferences, onGenerate }
   const [articleCount, setArticleCount] = useState(preferences.articleCount);
   const [excludedSources, setExcludedSources] = useState<string[]>(preferences.excludedSources);
 
+  // Determine if the user selected a country-specific (local) news region.  When
+  // in local mode the NewsAPI fetches top headlines by country and does not
+  // support arbitrary source selection.  In that case the custom source
+  // exclusion UI is disabled entirely.
+  const isLocal = preferences.region === "country";
+
   const handleArticleCountChange = (count: number) => {
     setArticleCount(count);
     updatePreferences({ articleCount: count });
@@ -82,29 +88,37 @@ export function SourcePreferences({ preferences, updatePreferences, onGenerate }
         </div>
 
         {/* Source Exclusions */}
-        <div className="bg-surface rounded-xl p-6 shadow-md border border-gray-200">
-          <h3 className="text-lg font-semibold text-secondary mb-4">Exclude Sources (Optional)</h3>
-          <p className="text-gray-600 mb-4">
-            Our AI automatically selects the best sources for your topics. You can exclude specific platforms if desired.
-          </p>
-          
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {sources.map((source) => (
-              <label key={source.id} className="flex items-center space-x-3 cursor-pointer">
-                <Checkbox
-                  checked={excludedSources.includes(source.id)}
-                  onCheckedChange={(checked) => handleSourceToggle(source.id, checked as boolean)}
-                />
-                <div className="flex items-center space-x-2">
-                  <div className={`w-8 h-8 bg-${source.color}-100 rounded-lg flex items-center justify-center`}>
-                    <i className={`${source.icon} text-${source.color}-600`}></i>
-                  </div>
-                  <span className="text-sm font-medium">{source.name}</span>
-                </div>
-              </label>
-            ))}
+        {isLocal ? (
+          <div className="bg-surface rounded-xl p-6 shadow-md border border-gray-200 text-center">
+            <h3 className="text-lg font-semibold text-secondary mb-2">Source Selection Disabled</h3>
+            <p className="text-gray-600 text-sm">
+              Custom source exclusions are not available when requesting country‑specific news. Top headlines will be retrieved based on your selected country.
+            </p>
           </div>
-        </div>
+        ) : (
+          <div className="bg-surface rounded-xl p-6 shadow-md border border-gray-200">
+            <h3 className="text-lg font-semibold text-secondary mb-4">Exclude Sources (Optional)</h3>
+            <p className="text-gray-600 mb-4">
+              Our AI automatically selects the best sources for your topics. You can exclude specific platforms if desired.
+            </p>
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {sources.map((source) => (
+                <label key={source.id} className="flex items-center space-x-3 cursor-pointer">
+                  <Checkbox
+                    checked={excludedSources.includes(source.id)}
+                    onCheckedChange={(checked) => handleSourceToggle(source.id, checked as boolean)}
+                  />
+                  <div className="flex items-center space-x-2">
+                    <div className={`w-8 h-8 bg-${source.color}-100 rounded-lg flex items-center justify-center`}>
+                      <i className={`${source.icon} text-${source.color}-600`}></i>
+                    </div>
+                    <span className="text-sm font-medium">{source.name}</span>
+                  </div>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* AI Source Selection Info */}
         <div className="bg-blue-50 rounded-xl p-6 border border-blue-200">

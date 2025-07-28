@@ -49,22 +49,14 @@ async def generate_news(request: GenerateNewsRequest, background_tasks: Backgrou
         
         logger.info(f"Selected {len(selected_sources)} sources: {[s['name'] for s in selected_sources]}")
         
-        # Step 2: Fetch and validate articles from selected sources.  We
-        # attempt to fetch more articles than requested to allow for
-        # filtering invalid or off-topic entries.  If we don't obtain
-        # enough valid articles after several attempts, we'll use
-        # whatever we have collected.  Note: this logic explicitly
-        # filters articles to ensure they mention at least one of the
-        # user-specified topics in either the title or content.  It
-        # also continues to fetch additional batches until the
-        # requested number of articles is reached or the maximum
-        # number of attempts is exceeded.
-        # Number of articles requested by the user.  We store this in a
-        # local variable so it can be referenced below without repeatedly
-        # accessing the request object.  When summarizing a week of news
-        # the user may choose a large number (e.g. 25), so our logic
-        # proactively over-fetches to ensure enough valid articles are
-        # returned after filtering.
+        # Step 2: Fetch and validate articles from the NewsAPI.  The
+        # aggregator now supports two modes of operation: global and local.
+        # Global mode fetches from /v2/everything with popularity sorting,
+        # while local mode fetches from /v2/top-headlines filtered by
+        # country.  We still over‑fetch to allow for filtering off-topic
+        # entries.  The number of articles requested by the user is
+        # stored in a local variable so it can be referenced below without
+        # repeatedly accessing the request object.
         desired_count = request.article_count
         # Increase the number of attempts to allow multiple retries if
         # the first few batches do not contain enough valid articles.
@@ -140,6 +132,12 @@ async def generate_news(request: GenerateNewsRequest, background_tasks: Backgrou
                 return False
             return dt >= datetime.utcnow() - timedelta(days=7)
 
+        # Determine which fetching mode to use based on the user's region
+        mode = "global" if request.region == "international" else "local"
+        # Default language for filtering; this could be extended to support
+        # user-specified languages in the future.  For now, use English.
+        language = "en"
+
         # We'll loop a fixed number of times to accumulate enough articles.
         for attempt in range(max_attempts):
             # Stop if we've collected enough articles
@@ -162,10 +160,17 @@ async def generate_news(request: GenerateNewsRequest, background_tasks: Backgrou
             else:
                 fetch_count = max(1, remaining * 2)
             try:
+                # Use the unified fetch_articles API.  We pass a list of topics
+                # and the desired mode so the aggregator can route the
+                # request appropriately.  ``selected_sources`` is omitted
+                # because global/local modes do not rely on user-selected
+                # sources; the NewsAPI handles filtering internally.
                 raw_articles = await news_aggregator.fetch_articles(
-                    topics=transformed_topics,
-                    sources=selected_sources,
-                    count=fetch_count
+                    topic=transformed_topics,
+                    count=fetch_count,
+                    mode=mode,
+                    language=language,
+                    country=request.country
                 )
             except Exception as e:
                 logger.error(f"Error fetching articles on attempt {attempt+1}: {e}")
@@ -196,7 +201,7 @@ async def generate_news(request: GenerateNewsRequest, background_tasks: Backgrou
         if not valid_articles:
             # If no articles were collected from the news aggregator, return a
             # custom message indicating that the free tier limit may have been reached.
-            raise HTTPException(status_code=404, detail="Free tier limit reached, could fetch more articles summary")
+            raise HTTPException(status_code=404, detail="Free tier max limit reached, try after some time.")
 
         # Step 3: AI analyzes and ranks articles
         logger.info(f"Analyzing {len(valid_articles)} articles with AI")

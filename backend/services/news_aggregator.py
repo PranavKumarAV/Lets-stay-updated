@@ -110,20 +110,13 @@ class NewsAggregator:
         # responses.  The flag resets when the application restarts.
         self.newsapi_rate_limited: bool = False
     
-    async def fetch_articles(self, topics: List[str], sources: List[Dict[str, Any]], count: int) -> List[Dict[str, Any]]:
+    async def _legacy_fetch_articles(self, topics: List[str], sources: List[Dict[str, Any]], count: int) -> List[Dict[str, Any]]:
         """
-        Orchestrate fetching of news articles for the given topics and sources.
-
-        This method first consults the NewsAPI for each requested source.  If a
-        source is not present in the built‑in mapping, it attempts to discover
-        the corresponding NewsAPI identifier using the ``discover_api_for_source``
-        helper.  Any discovered identifiers are cached for future use.  The
-        aggregator then attempts to fetch articles from the NewsAPI, followed
-        by RSS feeds for the user‑selected sources.  If those calls yield
-        fewer than the requested number of articles, additional RSS feeds
-        from all known sources are queried to top up the result.  Duplicate
-        articles (based on URL) are removed and the combined list is
-        truncated to twice the requested count to give the AI extra context.
+        Legacy article fetching pipeline used prior to the introduction of
+        global/local modes.  This method consults the NewsAPI (using the
+        mapped source identifiers) and then falls back to RSS feeds for the
+        selected sources.  It is retained for backwards compatibility with
+        older callers that supply a list of topics and explicit sources.
 
         :param topics: List of user topics
         :param sources: List of source dicts containing at least a ``name`` key
@@ -249,6 +242,231 @@ class NewsAggregator:
 
         # Return up to twice the requested count to give AI more context
         return unique_articles[: count * 2]
+
+    async def _fetch_global_articles(self, topic: str, count: int, language: str = "en") -> List[Dict[str, Any]]:
+        """
+        Fetch a list of articles for a given topic from the NewsAPI ``/v2/everything``
+        endpoint.  This helper always sorts results by popularity and restricts
+        the time window to the past seven days.  It returns up to ``count``
+        articles (possibly more if duplicates are removed).
+
+        :param topic: Search keyword or topic
+        :param count: Desired number of articles to return
+        :param language: ISO language code (e.g. "en")
+        :return: List of article dicts
+        """
+        api_key = settings.NEWS_API_KEY
+        # If no API key is configured or a previous request hit the rate limit,
+        # skip calling the NewsAPI entirely
+        if not api_key or self.newsapi_rate_limited:
+            return []
+        # Compute the date range for the past seven days
+        from_date = (datetime.utcnow() - timedelta(days=7)).strftime("%Y-%m-%d")
+        # Request twice the desired count to give more context
+        page_size = max(1, min(count * 2, 100))
+        url = (
+            "https://newsapi.org/v2/everything"
+            f"?q={aiohttp.helpers.quote(topic)}"
+            f"&language={language}"
+            f"&from={from_date}"
+            f"&sortBy=popularity"
+            f"&pageSize={page_size}"
+            f"&apiKey={api_key}"
+        )
+        articles: List[Dict[str, Any]] = []
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as resp:
+                    # Handle non‑200 responses gracefully
+                    if resp.status != 200:
+                        text = await resp.text()
+                        logger.warning(f"NewsAPI /v2/everything responded with status {resp.status}: {text}")
+                        # Mark as rate limited if we hit the 429 quota limit
+                        if resp.status == 429:
+                            self.newsapi_rate_limited = True
+                        return []
+                    data = await resp.json()
+                    for item in data.get("articles", []):
+                        # Skip articles published more than seven days ago
+                        published_at = item.get("publishedAt") or datetime.utcnow().isoformat()
+                        try:
+                            published_dt = datetime.fromisoformat(published_at.rstrip("Z"))
+                        except Exception:
+                            published_dt = datetime.utcnow()
+                        if published_dt < datetime.utcnow() - timedelta(days=7):
+                            continue
+                        articles.append({
+                            "title": item.get("title", ""),
+                            "content": item.get("description") or item.get("content") or "",
+                            "url": item.get("url", ""),
+                            "source": item.get("source", {}).get("name", ""),
+                            "published_at": published_at,
+                            "metadata": {
+                                "author": item.get("author"),
+                                "source_name": item.get("source", {}).get("name"),
+                            },
+                        })
+        except Exception as e:
+            logger.error(f"Error fetching global articles: {e}")
+            return []
+        # Deduplicate by URL
+        unique: List[Dict[str, Any]] = []
+        seen = set()
+        for art in articles:
+            url = art.get("url")
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            unique.append(art)
+        # Sort by published date descending
+        unique.sort(key=lambda x: x.get("published_at", ""), reverse=True)
+        return unique[:count]
+
+    async def _fetch_local_headlines(self, topic: str, count: int, country: Optional[str] = None, language: str = "en") -> List[Dict[str, Any]]:
+        """
+        Fetch top headlines for a given topic from the NewsAPI ``/v2/top-headlines``
+        endpoint.  Results are filtered by the supplied country code and
+        optionally by a category derived from the topic.  If no country is
+        provided, an empty list is returned.  Up to ``count`` articles are
+        returned.
+
+        :param topic: Search keyword or topic
+        :param count: Desired number of articles to return
+        :param country: Two‑letter ISO country code (e.g. "US")
+        :param language: ISO language code
+        :return: List of article dicts
+        """
+        api_key = settings.NEWS_API_KEY
+        if not api_key or self.newsapi_rate_limited or not country:
+            return []
+        # Derive a NewsAPI category from the topic using the existing helper.
+        # Only use the category parameter if it maps to a recognised NewsAPI
+        # category; otherwise omit it and rely on the `q` parameter.
+        derived_category = self._get_topic_category(topic)
+        valid_categories = {"business", "entertainment", "general", "health", "science", "sports", "technology"}
+        category_param = ""
+        if derived_category.lower() in valid_categories:
+            category_param = f"&category={aiohttp.helpers.quote(derived_category.lower())}"
+        # Request twice the desired count to allow for deduplication
+        page_size = max(1, min(count * 2, 100))
+        # Build the URL with mandatory country, optional query and category
+        url = (
+            "https://newsapi.org/v2/top-headlines"
+            f"?country={country.upper()}"
+            f"&language={language}"
+            f"&pageSize={page_size}"
+            f"{category_param}"
+            f"&q={aiohttp.helpers.quote(topic)}"
+            f"&apiKey={api_key}"
+        )
+        articles: List[Dict[str, Any]] = []
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as resp:
+                    if resp.status != 200:
+                        text = await resp.text()
+                        logger.warning(f"NewsAPI /v2/top-headlines responded with status {resp.status}: {text}")
+                        if resp.status == 429:
+                            self.newsapi_rate_limited = True
+                        return []
+                    data = await resp.json()
+                    for item in data.get("articles", []):
+                        published_at = item.get("publishedAt") or datetime.utcnow().isoformat()
+                        try:
+                            published_dt = datetime.fromisoformat(published_at.rstrip("Z"))
+                        except Exception:
+                            published_dt = datetime.utcnow()
+                        if published_dt < datetime.utcnow() - timedelta(days=7):
+                            continue
+                        articles.append({
+                            "title": item.get("title", ""),
+                            "content": item.get("description") or item.get("content") or "",
+                            "url": item.get("url", ""),
+                            "source": item.get("source", {}).get("name", ""),
+                            "published_at": published_at,
+                            "metadata": {
+                                "author": item.get("author"),
+                                "source_name": item.get("source", {}).get("name"),
+                            },
+                        })
+        except Exception as e:
+            logger.error(f"Error fetching local headlines: {e}")
+            return []
+        # Deduplicate and sort
+        unique: List[Dict[str, Any]] = []
+        seen = set()
+        for art in articles:
+            url = art.get("url")
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            unique.append(art)
+        unique.sort(key=lambda x: x.get("published_at", ""), reverse=True)
+        return unique[:count]
+
+    async def fetch_articles(self,
+                             topic: Any,
+                             count: int = 10,
+                             mode: str = "global",
+                             language: str = "en",
+                             country: Optional[str] = None,
+                             sources: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
+        """
+        Unified entry point for fetching news articles.  When a ``mode`` is
+        provided (either ``global`` or ``local``), this method routes the
+        request to the appropriate helper.  If ``sources`` are supplied and
+        no mode is given, the legacy pipeline will be used for backwards
+        compatibility.
+
+        :param topic: Either a single topic string or a list of topics
+        :param count: Number of articles requested
+        :param mode: ``global`` to fetch from /v2/everything or ``local`` to
+                     fetch from /v2/top-headlines.  Any other value (or ``None``)
+                     triggers the legacy behaviour if ``sources`` are provided.
+        :param language: Language code used for filtering results
+        :param country: Country code used for local headlines (ignored for
+                        global mode)
+        :param sources: Optional list of source dicts (legacy only)
+        :return: List of articles
+        """
+        # Determine if we should use the legacy code path.  If ``sources``
+        # are provided and the caller did not explicitly specify a mode, fall
+        # back to the original implementation.  This preserves behaviour
+        # for older API routes that still supply topics and sources.
+        if sources is not None and (mode is None or mode not in {"global", "local"}):
+            # Ensure topic is a list when using legacy fetch
+            topics_list = topic if isinstance(topic, list) else [str(topic)]
+            return await self._legacy_fetch_articles(topics_list, sources, count)
+
+        # Normalize topics into a list for iteration
+        topics_list: List[str] = topic if isinstance(topic, list) else [str(topic)]
+
+        collected: List[Dict[str, Any]] = []
+        for t in topics_list:
+            if mode == "local":
+                # For local mode we must have a country; skip if not provided
+                if not country:
+                    continue
+                fetched = await self._fetch_local_headlines(t, count, country=country, language=language)
+            else:
+                fetched = await self._fetch_global_articles(t, count, language=language)
+            collected.extend(fetched)
+
+        # Remove duplicates by URL
+        unique_articles: List[Dict[str, Any]] = []
+        seen_urls = set()
+        for article in collected:
+            url = article.get("url")
+            if not url or url in seen_urls:
+                continue
+            seen_urls.add(url)
+            unique_articles.append(article)
+
+        # Sort by published date descending
+        unique_articles.sort(key=lambda x: x.get("published_at", ""), reverse=True)
+
+        # Return up to the requested count * 2 to give the AI additional context
+        return unique_articles[: max(1, count * 2)]
 
     async def discover_api_for_source(self, source_name: str) -> Optional[str]:
         """
