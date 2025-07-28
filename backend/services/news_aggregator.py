@@ -4,6 +4,7 @@ from typing import List, Dict, Any, Optional
 import logging
 import aiohttp
 from ..core.config import settings
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,7 @@ class NewsAggregator:
         self.rss_feed_map = {
             # Use HTTPS for Reuters to avoid connection errors in environments
             # that disallow plain HTTP connections
-            "Reuters": "https://feeds.reuters.com/reuters/topNews",
+            "Reuters": "https://news.google.com/rss/search?q=site:reuters.com&hl=en-US&gl=US&ceid=US:en",
             "BBC News": "http://feeds.bbci.co.uk/news/rss.xml",
             "NPR": "https://feeds.npr.org/1001/rss.xml",
             "The Guardian": "https://www.theguardian.com/world/rss",
@@ -74,48 +75,6 @@ class NewsAggregator:
         # Mock article templates and author lists retained for fallback mode
         # (when no NEWS_API_KEY is configured).  These will be used to
         # generate placeholder articles if real news cannot be fetched.
-        self.article_templates = {
-            "politics": [
-                "Breaking: Major Policy Changes Announced in {topic}",
-                "Senate Votes on Landmark {topic} Legislation", 
-                "Political Analysis: {topic} Impact on Upcoming Elections",
-                "International Relations: {topic} Diplomatic Breakthrough",
-                "Expert Opinion: {topic} Policy Implications",
-                "Government Announces New {topic} Initiative",
-                "Opposition Party Criticizes {topic} Decision",
-                "Bipartisan Support Growing for {topic} Reform"
-            ],
-            "sports": [
-                "Championship Update: {topic} Tournament Results",
-                "Player Transfer News Shakes {topic} World",
-                "Record-Breaking Performance in {topic} Competition", 
-                "Injury Report: Key {topic} Players Sidelined",
-                "Season Analysis: {topic} Team Standings",
-                "Olympic Preparation: {topic} Athletes Training Hard",
-                "Coach Interview: {topic} Strategy Revealed",
-                "Fan Reactions: {topic} Match Generates Buzz"
-            ],
-            "ai": [
-                "AI Breakthrough: Revolutionary {topic} Technology",
-                "Tech Giants Invest Billions in {topic} Research",
-                "Ethical Concerns Raised Over {topic} Development",
-                "Industry Impact: {topic} Transforms Business Operations", 
-                "Research Paper: {topic} Advances Published",
-                "Startup Announces {topic} Innovation",
-                "AI Safety: New {topic} Regulations Proposed",
-                "Academic Conference: {topic} Findings Presented"
-            ],
-            "movies": [
-                "Box Office Hit: {topic} Film Breaks Records",
-                "Celebrity News: {topic} Stars Announce New Project",
-                "Film Festival: {topic} Movies Win Critical Acclaim",
-                "Industry Insider: {topic} Production Updates",
-                "Review: {topic} Film Receives Mixed Reception",
-                "Director Interview: {topic} Vision Explained",
-                "Behind the Scenes: {topic} Movie Magic",
-                "Awards Season: {topic} Nominations Announced"
-            ]
-        }
 
         self.authors = {
             "reddit": [
@@ -511,8 +470,16 @@ class NewsAggregator:
                         link = ''
                         link_elem = item.find('link')
                         if link_elem is not None:
-                            # Atom feeds often store the link URL in the href attribute
-                            link = link_elem.get('href') or (link_elem.text or '')
+                            # Atom format: <link href="..."/>
+                            href = link_elem.get('href')
+                            if href and href.strip().startswith("http"):
+                                link = href.strip()
+                            elif link_elem.text and link_elem.text.strip().startswith("http"):
+                                # RSS 2.0 format: <link>https://...</link>
+                                link = link_elem.text.strip()
+                        if not link:
+                            logger.warning(f"Skipping article due to missing or invalid link in source '{name}'")
+                            continue
                         entries[idx]['link'] = link
                 except Exception as e:
                     logger.warning(f"Error fetching/parsing RSS feed for {name}: {e}")
@@ -563,116 +530,26 @@ class NewsAggregator:
         articles.sort(key=lambda x: x.get("published_at", ""), reverse=True)
         # Return twice the requested count to allow for downstream ranking
         return articles[: count * 2]
-
-    def _generate_mock_articles(self, topics: List[str], sources: List[Dict[str, Any]], count: int) -> List[Dict[str, Any]]:
-        """Generate mock articles when no NEWS_API_KEY is available."""
-        articles = []
-        source_names = [source['name'] for source in sources]
-        articles_per_combination = max(1, count // (len(topics) * len(source_names)))
-        for topic in topics:
-            for source_name in source_names:
-                for _ in range(articles_per_combination + 1):
-                    article = self._generate_mock_article(topic, source_name)
-                    articles.append(article)
-        random.shuffle(articles)
-        return articles[: count * 2]
-    
-    def _generate_mock_article(self, topic: str, source: str) -> Dict[str, Any]:
-        """Generate a realistic mock article"""
-        # Determine topic category for templates
-        topic_key = self._get_topic_category(topic)
-        templates = self.article_templates.get(topic_key, self.article_templates["politics"])
-        
-        # Generate title
-        title_template = random.choice(templates)
-        title = title_template.format(topic=topic)
-        
-        # Generate content
-        content = self._generate_article_content(topic, title)
-        
-        # Generate URL
-        url_slug = title.lower().replace(" ", "-").replace(":", "")[:50]
-        url = f"https://example.com/{topic.lower().replace(' ', '-')}/{url_slug}"
-        
-        # Generate published time within the last 7 days.  When summarizing
-        # weekly highlights we want articles from the past week rather than
-        # only the last 24 hours.  Choose a random time within the last
-        # 7×24 hours (7 days) to simulate realistic publication dates.
-        published_at = datetime.now() - timedelta(hours=random.randint(1, 7 * 24))
-        
-        # Generate metadata based on source type
-        metadata = self._generate_metadata(source)
-        
-        return {
-            "title": title,
-            "content": content,
-            "url": url,
-            "source": source,
-            "published_at": published_at.isoformat(),
-            "metadata": metadata
-        }
     
     def _get_topic_category(self, topic: str) -> str:
-        """Categorize topic for template selection"""
+        """Categorize topic based on keyword matching with smarter detection.
+        If no category matches, return the topic itself."""
         topic_lower = topic.lower()
-        if any(word in topic_lower for word in ["politics", "government", "election", "policy", "trump", "biden"]):
-            return "politics"
-        elif any(word in topic_lower for word in ["sports", "football", "basketball", "soccer", "tennis", "olympics"]):
-            return "sports"
-        elif any(word in topic_lower for word in ["ai", "artificial intelligence", "machine learning", "technology", "tech"]):
-            return "ai"
-        elif any(word in topic_lower for word in ["movies", "film", "cinema", "hollywood", "entertainment"]):
-            return "movies"
-        else:
-            return "politics"  # Default
-    
-    def _generate_article_content(self, topic: str, title: str) -> str:
-        """Generate realistic article content"""
-        base_content = f"""
-        Recent developments in {topic} have captured significant attention from experts and stakeholders worldwide. 
-        The implications of these changes are expected to have far-reaching consequences across multiple sectors.
-        
-        Industry analysts suggest that this trend represents a fundamental shift in how {topic} is approached, 
-        with new methodologies and strategies being adopted by organizations globally. The response from key 
-        stakeholders has been largely positive, though some concerns remain about long-term sustainability.
-        
-        Key findings from recent studies indicate that the current trajectory in {topic} will likely continue 
-        for the foreseeable future, with emerging technologies and changing consumer preferences driving innovation.
-        
-        Experts recommend that organizations closely monitor these developments and adapt their strategies accordingly 
-        to remain competitive in this evolving landscape. The next few months will be crucial in determining 
-        the long-term impact of these changes on the {topic} sector.
-        """.strip()
-        
-        return base_content
-    
-    def _generate_metadata(self, source: str) -> Dict[str, Any]:
-        """Generate realistic metadata based on source type"""
-        source_lower = source.lower()
-        
-        if "reddit" in source_lower:
-            return {
-                "views": random.randint(1000, 50000),
-                "comments": random.randint(50, 1000),
-                "upvotes": random.randint(100, 5000),
-                "author": random.choice(self.authors["reddit"])
-            }
-        # We intentionally skip generating Twitter/X style metadata because that
-        # platform is excluded from our news sources.
-        elif "substack" in source_lower:
-            return {
-                "author": random.choice(self.authors["substack"]),
-                "read_time": f"{random.randint(3, 15)} min read",
-                "subscribers": random.randint(1000, 50000),
-                "likes": random.randint(50, 500)
-            }
-        else:  # Traditional media
-            return {
-                "views": random.randint(5000, 100000),
-                "author": random.choice(self.authors["traditional"]),
-                "published_outlet": source,
-                "word_count": random.randint(500, 2000)
-            }
 
+        categories = {
+            "politics": ["politics", "government", "election", "policy", "trump", "biden"],
+            "sports": ["sports", "football", "basketball", "soccer", "tennis", "olympics"],
+            "artificial intelligence": ["ai", "artificial intelligence", "machine learning", "technology", "tech"],
+            "movies": ["movies", "film", "cinema", "hollywood", "entertainment"]
+        }
+
+        for category, keywords in categories.items():
+            for word in keywords:
+                if re.search(rf'\b{re.escape(word)}\b', topic_lower):
+                    return category
+
+        # No match found — return the topic itself
+        return topic.strip()
+        
 # Global aggregator instance
 news_aggregator = NewsAggregator()
