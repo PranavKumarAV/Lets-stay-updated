@@ -30,7 +30,7 @@ class NewsArticleResponse(BaseModel):
     url: str = Field(..., description="Canonical article URL")
     source: str = Field(..., description="Source or publication name")
     topic: str = Field(..., description="Matched topic for the article")
-    ai_score: int = Field(..., ge=1, le=100, description="AI relevance score (1-100)")
+    ai_score: float = Field(..., ge=1, le=100, description="AI relevance score (1-100)")
     published_at: datetime = Field(..., description="Datetime when the article was published (UTC)")
     fetched_at: datetime = Field(..., description="Datetime when the article was fetched (UTC)")
     metadata: Optional[Dict[str, Any]] = Field(default={}, description="Additional structured metadata")

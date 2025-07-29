@@ -165,7 +165,7 @@ async def generate_news(request: GenerateNewsRequest, background_tasks: Backgrou
                     continue
                 if await is_url_valid(url):
                     valid_articles.append(article)
-                    
+
         if not valid_articles:
             # No articles were collected even after exhausting the NewsAPI and RSS fallback.
             # Return an empty result with total_count 0.  The frontend will display
@@ -264,7 +264,7 @@ async def get_news_sources(request: GetSourcesRequest):
 async def get_cached_articles(
     topics: str = None,
     source: str = None,
-    min_ai_score: int = None,
+    min_ai_score: float = None,
     limit: int = 20
 ):
     """Get cached articles with optional filtering"""
