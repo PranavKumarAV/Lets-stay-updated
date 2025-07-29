@@ -110,21 +110,34 @@ class NewsAggregator:
         # responses.  The flag resets when the application restarts.
         self.newsapi_rate_limited: bool = False
 
-        # Collect all available NewsAPI keys for quota rotation.  The primary
-        # ``NEWS_API_KEY`` is always considered first.  Additional keys can
-        # be provided via ``NEWS_API_KEY_1``, and ``NEWS_API_KEY_2``
-        # in the environment (see ``backend/core/config.py``).
+        # Collect all available NewsAPI keys for quota rotation.  Attempt
+        # to pull from multiple environment variables to be robust to
+        # different deployment naming conventions (e.g. NEWS_API_KEY vs
+        # NEWS_API).  The primary key is always considered first.  Keys
+        # ending in _1, or _2 allow simple rotation when the free
+        # quota is exhausted.
         self.newsapi_keys: List[str] = []
+        # Pull keys from the Settings dataclass when defined
         if settings.NEWS_API_KEY:
             self.newsapi_keys.append(settings.NEWS_API_KEY)
-        # Append any numbered keys if present
         for i in range(1, 3):
+            key_attr = f"NEWS_API_KEY_{i}"
             try:
-                key = getattr(settings, f"NEWS_API_KEY_{i}")
+                key_val = getattr(settings, key_attr)
             except AttributeError:
-                key = None
-            if key:
-                self.newsapi_keys.append(key)
+                key_val = None
+            if key_val:
+                self.newsapi_keys.append(key_val)
+        # Fallback: also check for alternative environment variable names
+        # like NEWS_API, NEWS_API_1, NEWS_API_2. Some
+        # deployments may define API keys using these names.  We use
+        # os.getenv directly here to avoid adding more fields to settings.
+        import os
+        for fallback_name in ["NEWS_API", "NEWS_API_1", "NEWS_API_2"]:
+            val = os.getenv(fallback_name)
+            if val and val not in self.newsapi_keys:
+                self.newsapi_keys.append(val)
+
         # Index used to track which key is currently active when
         # sequentially iterating through multiple keys.  This is not
         # currently used directly but retained for future enhancement.
@@ -759,24 +772,44 @@ class NewsAggregator:
         return articles[: count * 2]
     
     def _get_topic_category(self, topic: str) -> str:
-        """Categorize topic based on keyword matching with smarter detection.
-        If no category matches, return the topic itself."""
-        topic_lower = topic.lower()
-
-        categories = {
-            "politics": ["politics", "government", "election", "policy", "trump", "biden"],
-            "sports": ["sports", "football", "basketball", "soccer", "tennis", "olympics"],
-            "artificial intelligence": ["ai", "artificial intelligence", "machine learning", "technology", "tech"],
-            "movies": ["movies", "film", "cinema", "hollywood", "entertainment"]
+        """
+        Map a free‑form topic to a NewsAPI category using keyword heuristics.
+        If no category matches, return the topic itself.  This helper is used
+        when fetching local headlines to derive a ``category`` parameter.  It
+        now recognizes the seven canonical NewsAPI categories (business,
+        entertainment, general, health, science, sports and technology) and
+        includes a wider set of synonyms for each.  If the topic matches
+        multiple categories, the first match in the defined order is used.
+        """
+        topic_lower = topic.lower().strip()
+        categories: dict[str, list[str]] = {
+            "business": [
+                "business", "finance", "economy", "economic", "stock", "stocks", "markets", "company", "companies"
+            ],
+            "entertainment": [
+                "entertainment", "movie", "movies", "film", "cinema", "hollywood", "music", "celebrity", "celebrities"
+            ],
+            "general": [
+                "general", "news", "top stories", "headlines", "current events"
+            ],
+            "health": [
+                "health", "healthcare", "medicine", "medical", "wellness", "fitness", "covid", "pandemic"
+            ],
+            "science": [
+                "science", "research", "physics", "chemistry", "biology", "space", "astronomy", "quantum"
+            ],
+            "sports": [
+                "sports", "sport", "football", "soccer", "basketball", "baseball", "tennis", "golf", "olympics"
+            ],
+            "technology": [
+                "technology", "tech", "gadget", "gadgets", "ai", "artificial intelligence", "machine learning", "computing", "software"
+            ],
         }
-
         for category, keywords in categories.items():
-            for word in keywords:
-                if re.search(rf'\b{re.escape(word)}\b', topic_lower):
+            for keyword in keywords:
+                if re.search(rf"\b{re.escape(keyword)}\b", topic_lower):
                     return category
-
-        # No match found — return the topic itself
-        return topic.strip()
+        return topic_lower
         
 # Global aggregator instance
 news_aggregator = NewsAggregator()
