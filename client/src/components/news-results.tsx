@@ -201,6 +201,12 @@ export function NewsResults({ preferences, onModifySearch }: NewsResultsProps) {
               </li>
             ))}
           </ul>
+          {/* If fewer articles were returned than requested, inform the user about the free tier limit. */}
+          {newsData && newsData.total_count < preferences.articleCount && (
+            <p className="mt-4 text-sm text-red-600">
+              Sorry, free tier limit reached. Currently only these many articles are available. Try after some time.
+            </p>
+          )}
         </div>
       )}
     </div>

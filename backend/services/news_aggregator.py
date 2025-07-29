@@ -54,6 +54,34 @@ class NewsAggregator:
             "IndieWire": "https://www.indiewire.com/feed",
             "Screen International": "https://screendaily.com/45202.rss",
 
+            # Additional entertainment and general outlets
+            "Entertainment Weekly": "https://ew.com/feed",
+            "E! News": "https://www.eonline.com/syndication/feeds/rssfeeds/topstories.xml",
+
+            # Business outlets
+            "Business Insider": "https://www.businessinsider.com/us/rss",
+            "CNBC": "https://www.cnbc.com/id/100003114/device/rss/rss.html",
+            "BBC Business": "https://feeds.bbci.co.uk/news/business/rss.xml",
+            "Forbes": "https://www.forbes.com/business/feed",
+            "Financial Times": "https://www.ft.com/?edition=international&format=rss",
+            "Bloomberg": "https://www.bloomberg.com/feed/podcast.xml",
+
+            # General news outlets
+            "CNN": "http://rss.cnn.com/rss/edition.rss",
+            "Al Jazeera English": "https://www.aljazeera.com/xml/rss/all.xml",
+            "The New York Times": "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",
+            "The Washington Post": "http://feeds.washingtonpost.com/rss/world",
+
+            # Sports outlets
+            "ESPN": "https://www.espn.com/espn/rss/news",
+            "Sky Sports": "https://www.skysports.com/rss/12040",
+            "CBS Sports": "https://www.cbssports.com/rss/headlines/",
+            "BBC Sport": "http://feeds.bbci.co.uk/sport/rss.xml",
+
+            # Health outlets
+            "Healthline": "https://www.healthline.com/rss",
+            "Medical News Today": "https://www.medicalnewstoday.com/rss",
+
             # Technology and science outlets
             # These feeds were sourced from publicly available RSS listings.
             # The Verge: general technology and culture feed
@@ -487,6 +515,39 @@ class NewsAggregator:
         # Sort by published date descending
         unique_articles.sort(key=lambda x: x.get("published_at", ""), reverse=True)
 
+        # If we didn't collect any articles from the NewsAPI and a fallback is
+        # available, attempt to gather articles from RSS feeds.  We build a
+        # list of source dicts using the keys of ``rss_feed_map``.  The
+        # resulting articles will still be filtered by topics_list and
+        # deduplicated.  RSS parsing may be slower, so this block is
+        # executed only when the API yields no content.
+        if not unique_articles:
+            try:
+                # Build a generic sources list for RSS based on all known feeds
+                rss_sources = [{"name": name} for name in self.rss_feed_map.keys()]
+                rss_articles: List[Dict[str, Any]] = []
+                # Fetch RSS articles for each topic; the helper already handles
+                # per-source filtering and deduplication.  We request count
+                # articles per topic to over‑fetch and allow downstream ranking.
+                for t in topics_list:
+                    fetched = await self._fetch_rss_articles([t], rss_sources, count)
+                    rss_articles.extend(fetched)
+                # Deduplicate and sort RSS articles by published_at descending
+                seen_rss = set()
+                deduped_rss: List[Dict[str, Any]] = []
+                for art in rss_articles:
+                    url = art.get("url")
+                    if not url or url in seen_rss:
+                        continue
+                    seen_rss.add(url)
+                    deduped_rss.append(art)
+                deduped_rss.sort(key=lambda x: x.get("published_at", ""), reverse=True)
+                # Return up to 2× count to allow AI ranking later
+                return deduped_rss[: max(1, count * 2)]
+            except Exception as e:
+                logger.error(f"Error fetching RSS fallback articles: {e}")
+                # Return empty list; upstream will handle with 404
+                return []
         # Return up to the requested count * 2 to give the AI additional context
         return unique_articles[: max(1, count * 2)]
 

@@ -28,46 +28,22 @@ async def generate_news(request: GenerateNewsRequest, background_tasks: Backgrou
     start_time = time.time()
     
     try:
-        # Step 1: AI selects best news sources.  Normalize topics by
-        # replacing the short term "ai" with the more descriptive
-        # "artificial intelligence" to improve search relevance.  We
-        # preserve the original topics list for display but use the
-        # transformed list for source selection and article retrieval.
+        # Step 1: Normalize topics.  Replace short forms (e.g. "ai") with
+        # descriptive equivalents to improve NewsAPI search relevance.
         transformed_topics = [
             ("artificial intelligence" if t.lower().strip() == "ai" else t)
             for t in request.topics
         ]
-        logger.info(f"Selecting sources for topics: {transformed_topics}")
-        selected_sources = await groq_service.select_news_sources(
-            topics=transformed_topics,
-            region=request.region,
-            excluded_sources=request.excluded_sources or []
-        )
-        
-        if not selected_sources:
-            raise HTTPException(status_code=400, detail="No suitable news sources found")
-        
-        logger.info(f"Selected {len(selected_sources)} sources: {[s['name'] for s in selected_sources]}")
-        
-        # Step 2: Fetch and validate articles from the NewsAPI.  The
-        # aggregator now supports two modes of operation: global and local.
-        # Global mode fetches from /v2/everything with popularity sorting,
-        # while local mode fetches from /v2/top-headlines filtered by
-        # country.  We still over‑fetch to allow for filtering off-topic
-        # entries.  The number of articles requested by the user is
-        # stored in a local variable so it can be referenced below without
-        # repeatedly accessing the request object.
+        logger.info(f"Fetching articles for topics: {transformed_topics}")
+
+        # Step 2: Fetch and validate articles from the NewsAPI (with fallback to RSS).  We no longer
+        # ask the LLM to select sources.  Instead we rely solely on the
+        # NewsAPI, rotating through multiple API keys.  If the NewsAPI
+        # cannot return any articles due to quota exhaustion or missing
+        # results, the aggregator will automatically fall back to RSS feeds.
         desired_count = request.article_count
-        # Increase the number of attempts to allow multiple retries if
-        # the first few batches do not contain enough valid articles.
         max_attempts = 5
         valid_articles: List[Dict[str, Any]] = []
-        # We previously tracked seen URLs to prevent duplicates.  However,
-        # the mock news aggregator can generate multiple articles with
-        # identical slugs, so filtering duplicates would artificially
-        # reduce the number of available articles.  We therefore allow
-        # duplicates and rely on the AI ranking to select the top
-        # summaries.
 
         async def is_url_valid(url: str) -> bool:
             """Check if a URL returns a successful response.
@@ -199,9 +175,16 @@ async def generate_news(request: GenerateNewsRequest, background_tasks: Backgrou
                 valid_articles.append(article)
 
         if not valid_articles:
-            # If no articles were collected from the news aggregator, return a
-            # custom message indicating that the free tier limit may have been reached.
-            raise HTTPException(status_code=404, detail="Free tier max limit reached, try after some time.")
+            # No articles were collected even after exhausting the NewsAPI and RSS fallback.
+            # Return an empty result with total_count 0.  The frontend will display
+            # a user‑friendly message about the free tier limit.
+            processing_time = int((time.time() - start_time) * 1000)
+            return GenerateNewsResponse(
+                articles=[],
+                total_count=0,
+                generated_at=datetime.now().isoformat(),
+                processing_time_ms=processing_time
+            )
 
         # Step 3: AI analyzes and ranks articles
         logger.info(f"Analyzing {len(valid_articles)} articles with AI")
