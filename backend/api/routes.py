@@ -46,19 +46,17 @@ async def generate_news(request: GenerateNewsRequest, background_tasks: Backgrou
         valid_articles: List[Dict[str, Any]] = []
 
         async def is_url_valid(url: str) -> bool:
-            """Check if a URL returns a successful response.
-
-            In the current implementation we relax URL validation to avoid
-            dropping articles solely due to inaccessible links.  When
-            operating with mock data (e.g. example.com) or in offline
-            environments, many HEAD/GET requests may fail, resulting
-            in fewer than the desired number of articles.  To ensure
-            that the requested number of articles is returned, this
-            function always returns ``True``.  If stricter validation
-            is required in the future, the original network checks can
-            be reinstated.
             """
-            return True
+            Perform a lightweight HTTP HEAD request to verify that a URL is reachable
+            and returns a 200 OK or other valid response code.
+            """
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.head(url, allow_redirects=True, timeout=5) as response:
+                        return response.status < 400
+            except Exception as e:
+                # Could log e here if needed
+                return False
 
         def is_article_relevant(article: Dict[str, Any], topics: List[str]) -> bool:
             """Check if an article mentions any of the user topics or their synonyms.
@@ -165,9 +163,9 @@ async def generate_news(request: GenerateNewsRequest, background_tasks: Backgrou
                 # Skip articles older than one week
                 if not is_recent_article(article):
                     continue
-                # Always accept the article without performing network validation
-                valid_articles.append(article)
-
+                if await is_url_valid(url):
+                    valid_articles.append(article)
+                    
         if not valid_articles:
             # No articles were collected even after exhausting the NewsAPI and RSS fallback.
             # Return an empty result with total_count 0.  The frontend will display

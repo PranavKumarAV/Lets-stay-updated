@@ -57,8 +57,8 @@ class Settings:
     DATABASE_URL: str = field(default_factory=lambda: os.getenv("DATABASE_URL", "sqlite:///./news_app.db"))
 
     # News API settings
-    MAX_ARTICLES_PER_REQUEST: int = field(default_factory=lambda: int(os.getenv("MAX_ARTICLES_PER_REQUEST", "50")))
-    DEFAULT_ARTICLE_COUNT: int = field(default_factory=lambda: int(os.getenv("DEFAULT_ARTICLE_COUNT", "10")))
+    MAX_ARTICLES_PER_REQUEST: int = field(default_factory=lambda: int(os.getenv("MAX_ARTICLES_PER_REQUEST", "25")))
+    DEFAULT_ARTICLE_COUNT: int = field(default_factory=lambda: int(os.getenv("DEFAULT_ARTICLE_COUNT", "5")))
     ARTICLE_CACHE_HOURS: int = field(default_factory=lambda: int(os.getenv("ARTICLE_CACHE_HOURS", "24")))
 
     # CORS
