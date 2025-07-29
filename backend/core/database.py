@@ -21,7 +21,6 @@ class NewsDatabase:
                 country TEXT,
                 topics TEXT NOT NULL,
                 article_count INTEGER DEFAULT 10,
-                excluded_sources TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -54,14 +53,13 @@ class NewsDatabase:
         cursor = conn.cursor()
 
         cursor.execute('''
-            INSERT INTO news_preferences (region, country, topics, article_count, excluded_sources)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO news_preferences (region, country, topics, article_count)
+            VALUES (?, ?, ?, ?)
         ''', (
             preferences['region'],
             preferences.get('country'),
             json.dumps(preferences['topics']),
-            preferences.get('article_count', 10),
-            json.dumps(preferences.get('excluded_sources', []))
+            preferences.get('article_count', 10)
         ))
 
         pref_id = cursor.lastrowid

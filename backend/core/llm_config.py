@@ -1,7 +1,8 @@
 """
-LLM Configuration - Groq only
+LLM Configuration - Groq with Dynamic Model Failover
 """
 import os
+import time
 from typing import Dict, Any, Optional
 from dataclasses import dataclass
 
@@ -15,8 +16,15 @@ class LLMConfig:
     temperature: float = 0.7
     free_tier: bool = True
     requests_per_minute: Optional[int] = None
+    tokens_per_hour: Optional[int] = None
+    context_window: Optional[int] = None
+
 
 class LLMManager:
+    # Track temporarily exhausted models with a cooldown period
+    _exhausted_models: Dict[str, float] = {}
+
+    # Available models and metadata
     PROVIDERS = {
         "groq": {
             "name": "Groq",
@@ -48,21 +56,39 @@ class LLMManager:
     }
 
     @classmethod
-    def get_best_free_config(cls) -> LLMConfig:
+    def get_available_config(cls) -> LLMConfig:
         key = os.getenv("GROQ_API_KEY")
         if not key:
-            raise ValueError("No free-tier LLM API key found. Set GROQ_API_KEY.")
-        
-        return LLMConfig(
-            provider="groq",
-            model="llama3-70b-8192",
-            api_key=key,
-            base_url=cls.PROVIDERS["groq"]["base_url"],
-            max_tokens=2048,
-            temperature=0.7,
-            free_tier=True,
-            requests_per_minute=30
-        )
+            raise ValueError("Missing GROQ_API_KEY")
+
+        for model_name, meta in cls.PROVIDERS["groq"]["models"].items():
+            # Skip if recently exhausted
+            if model_name in cls._exhausted_models:
+                if time.time() < cls._exhausted_models[model_name]:
+                    continue  # still cooling down
+                else:
+                    del cls._exhausted_models[model_name]
+
+            try:
+                return LLMConfig(
+                    provider="groq",
+                    model=model_name,
+                    api_key=key,
+                    base_url=cls.PROVIDERS["groq"]["base_url"],
+                    max_tokens=2048,
+                    temperature=0.7,
+                    free_tier=True,
+                    requests_per_minute=meta["requests_per_minute"],
+                    tokens_per_hour=meta["tokens_per_hour"],
+                    context_window=meta["context_window"]
+                )
+            except Exception as e:
+                if "quota" in str(e).lower() or "rate limit" in str(e).lower():
+                    cls._exhausted_models[model_name] = time.time() + 300  # 5-minute cooldown
+                    continue
+                raise e
+
+        raise RuntimeError("All LLM models have reached their usage limits.")
 
     @classmethod
     def get_config_from_env(cls) -> LLMConfig:
@@ -70,7 +96,12 @@ class LLMManager:
         key = os.getenv("GROQ_API_KEY")
         if not key:
             raise ValueError("Missing GROQ_API_KEY")
-        
+
+        if model not in cls.PROVIDERS["groq"]["models"]:
+            raise ValueError(f"Unsupported model: {model}")
+
+        meta = cls.PROVIDERS["groq"]["models"][model]
+
         return LLMConfig(
             provider="groq",
             model=model,
@@ -79,7 +110,9 @@ class LLMManager:
             max_tokens=int(os.getenv("LLM_MAX_TOKENS", "2048")),
             temperature=float(os.getenv("LLM_TEMPERATURE", "0.7")),
             free_tier=True,
-            requests_per_minute=30
+            requests_per_minute=meta["requests_per_minute"],
+            tokens_per_hour=meta["tokens_per_hour"],
+            context_window=meta["context_window"]
         )
 
     @classmethod

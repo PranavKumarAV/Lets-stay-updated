@@ -17,9 +17,9 @@ class GroqService:
         logger.info("GroqService initialized (now using universal LLM service)")
         self.client = llm_service  # Delegate to universal service
     
-    async def select_news_sources(self, topics, region, excluded_sources=None):
+    async def select_news_sources(self, topics, region):
         """Delegate to universal LLM service"""
-        return await llm_service.select_news_sources(topics, region, excluded_sources)
+        return await llm_service.select_news_sources(topics, region)
     
     async def analyze_and_rank_articles(self, articles, topics, preferences):
         """Delegate to universal LLM service"""

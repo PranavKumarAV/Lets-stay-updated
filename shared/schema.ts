@@ -8,7 +8,6 @@ export const newsPreferences = pgTable("news_preferences", {
   country: text("country"), // specific country if region is "country"
   topics: jsonb("topics").notNull(), // array of selected topics
   articleCount: integer("article_count").notNull().default(10),
-  excludedSources: jsonb("excluded_sources"), // array of excluded source names
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -45,7 +44,6 @@ export const generateNewsRequestSchema = z.object({
   country: z.string().optional(),
   topics: z.array(z.string()).min(1),
   articleCount: z.number().min(5).max(50),
-  excludedSources: z.array(z.string()).optional(),
 });
 
 export type GenerateNewsRequest = z.infer<typeof generateNewsRequestSchema>;

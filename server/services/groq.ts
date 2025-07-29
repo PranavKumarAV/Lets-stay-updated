@@ -109,8 +109,7 @@ async function callGroqChat(params: {
 export class GroqService {
   async selectNewsSources(
     topics: string[],
-    region: string,
-    excludedSources: string[] = []
+    region: string
   ): Promise<any[]> {
     const prompt = `You are an AI news curation expert. Given the following topics and region, recommend the best 3 news providers. If the region is 'country', select outlets that primarily serve that country. If the region is 'international', choose globally recognized news providers. Return only sources with a valid RSS feed (feedUrl) or public API ID (newsapiId). Avoid social media platforms like Reddit, Substack, or Twitter. Respond ONLY with JSON in this format: [{"name": "Provider Name", "feedUrl": "https://...", "newsapiId": "id-if-available"}].`;
 
@@ -126,9 +125,7 @@ export class GroqService {
       return result.sources || result || [];
     } catch (e) {
       console.error("selectNewsSources failed:", e);
-      return AVAILABLE_SOURCES.filter(
-        (src) => !excludedSources.includes(src.name)
-      ).map((src) => ({
+      return AVAILABLE_SOURCES.map((src) => ({
         name: src.name,
         type: src.type,
         feedUrl: src.feedUrl || "",

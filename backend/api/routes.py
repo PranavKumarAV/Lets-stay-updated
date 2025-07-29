@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
 import time
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from ..models.schemas import (
     GenerateNewsRequest, GenerateNewsResponse, 
@@ -90,23 +90,17 @@ async def generate_news(request: GenerateNewsRequest, background_tasks: Backgrou
             return False
 
         def is_recent_article(article: Dict[str, Any]) -> bool:
-            """Return True if the article was published within the last 7 days.
-
-            This helper parses the article's ``published_at`` field and compares
-            it against the current UTC time minus 7 days.  Articles
-            without a valid ``published_at`` timestamp are considered
-            outdated and skipped.  Using UTC ensures consistency
-            regardless of server timezone.
-            """
+            """Return True if the article was published within the last 7 days."""
             published = article.get("published_at")
             if not published:
                 return False
             try:
-                # Remove trailing Z if present and parse as naive datetime
-                dt = datetime.fromisoformat(published.rstrip("Z"))
+                # Parse ISO datetime and convert to UTC-aware datetime
+                dt = datetime.fromisoformat(published.replace("Z", "+00:00"))
+                now = datetime.now(timezone.utc)
+                return dt >= now - timedelta(days=7)
             except Exception:
                 return False
-            return dt >= datetime.utcnow() - timedelta(days=7)
 
         # Determine which fetching mode to use based on the user's region
         mode = "global" if request.region == "international" else "local"
@@ -194,7 +188,6 @@ async def generate_news(request: GenerateNewsRequest, background_tasks: Backgrou
             preferences={
                 "region": request.region,
                 "country": request.country,
-                "excluded_sources": request.excluded_sources or []
             }
         )
 
@@ -206,7 +199,12 @@ async def generate_news(request: GenerateNewsRequest, background_tasks: Backgrou
             # Generate a concise summary using the LLM service
             summary_text = ""
             try:
-                summary_text = await groq_service.client.generate_article_summary(article.get("content", "")) if hasattr(groq_service, 'client') else ""
+                content = article.get("content", "")
+                if len(content) < 100:
+                    summary_text = content
+                else:
+                    summary_text = await groq_service.client.generate_article_summary(content)
+
             except Exception as e:
                 logger.warning(f"Failed to generate summary for article '{article.get('title', '')}': {e}")
                 summary_text = article.get("content", "")[:200] + ("..." if len(article.get("content", "")) > 200 else "")
@@ -256,7 +254,6 @@ async def get_news_sources(request: GetSourcesRequest):
         sources = await groq_service.select_news_sources(
             topics=request.topics,
             region=request.region,
-            excluded_sources=request.excluded_sources or []
         )
         
         return GetSourcesResponse(sources=sources)

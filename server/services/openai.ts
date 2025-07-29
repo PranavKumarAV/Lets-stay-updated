@@ -32,13 +32,12 @@ export interface AnalyzedArticle {
 }
 
 export class OpenAIService {
-  async selectNewsSources(topics: string[], region: string, excludedSources: string[] = []): Promise<NewsSource[]> {
+  async selectNewsSources(topics: string[], region: string): Promise<NewsSource[]> {
     try {
       const prompt = `You are an AI news curation expert. Given the following topics and preferences, recommend the best news sources.
 
 Topics: ${topics.join(', ')}
 Region: ${region}
-Excluded sources: ${excludedSources.join(', ') || 'None'}
 
 Consider these source types:
 - Reddit (community discussions, real-time reactions)

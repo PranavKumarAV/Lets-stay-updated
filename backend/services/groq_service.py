@@ -51,20 +51,17 @@ class GroqService:
         else:
             self.client = Groq(api_key=settings.GROQ_API_KEY)
     
-    async def select_news_sources(self, topics: List[str], region: str, excluded_sources: List[str] = None) -> List[Dict[str, Any]]:
+    async def select_news_sources(self, topics: List[str], region: str) -> List[Dict[str, Any]]:
         """Select optimal news sources using Groq AI"""
-        if excluded_sources is None:
-            excluded_sources = []
             
         if not self.client:
-            return self._get_fallback_sources(topics, excluded_sources)
+            return self._get_fallback_sources(topics)
         
         try:
             prompt = f"""You are an AI news curation expert. Select the best news sources for these topics and region.
 
 TOPICS: {', '.join(topics)}
 REGION: {region}
-EXCLUDED SOURCES: {', '.join(excluded_sources) if excluded_sources else 'None'}
 
         Consider these source types:
         - Reddit (community discussions, real-time reactions)
@@ -95,18 +92,12 @@ Return exactly 8-12 diverse sources as JSON:
             # to our bundled version.
             result = _json_repair.loads(content)
             sources = result.get('sources', [])
-            
-            # Filter out excluded sources
-            filtered_sources = [
-                source for source in sources 
-                if source['name'].lower() not in [exc.lower() for exc in excluded_sources]
-            ]
-            
-            return filtered_sources[:12]  # Limit to 12 sources
+                        
+            return sources[:10]  # Limit to 10 sources
             
         except Exception as e:
             logger.error(f"Error selecting news sources with Groq: {e}")
-            return self._get_fallback_sources(topics, excluded_sources)
+            return self._get_fallback_sources(topics)
     
     async def analyze_and_rank_articles(self, articles: List[Dict[str, Any]], topics: List[str], preferences: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Analyze and rank articles using Groq AI"""
@@ -202,10 +193,8 @@ Return JSON format:
             logger.error(f"Error generating summary with Groq: {e}")
             return content[:200] + "..."
     
-    def _get_fallback_sources(self, topics: List[str], excluded_sources: List[str] = None) -> List[Dict[str, Any]]:
+    def _get_fallback_sources(self, topics: List[str]) -> List[Dict[str, Any]]:
         """Fallback news sources when AI is unavailable"""
-        if excluded_sources is None:
-            excluded_sources = []
         
         # Predefined fallback sources.  The list intentionally omits Twitter/X to
         # avoid relying on that platform as a news source.
@@ -260,14 +249,8 @@ Return JSON format:
                 "reasoning": "Tech-focused discussions and startup news",
             },
         ]
-        
-        # Filter out excluded sources
-        filtered_sources = [
-            source for source in all_sources 
-            if source['name'].lower() not in [exc.lower() for exc in excluded_sources]
-        ]
-        
-        return filtered_sources
+             
+        return all_sources
     
     def _apply_fallback_ranking(self, articles: List[Dict[str, Any]], topics: List[str]) -> List[Dict[str, Any]]:
         """Apply fallback ranking when AI is unavailable"""

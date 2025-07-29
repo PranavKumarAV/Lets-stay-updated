@@ -17,10 +17,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log("Processing request:", requestBody);
 
       const validatedData = generateNewsRequestSchema.parse(requestBody);
-      const { region, country, topics, articleCount, excludedSources = [] } = validatedData;
+      const { region, country, topics, articleCount} = validatedData;
 
       // Step 1: Groq selects best news sources
-      const selectedSources = await groqService.selectNewsSources(topics, region, excludedSources);
+      const selectedSources = await groqService.selectNewsSources(topics, region);
       console.log('Groq selected sources:', selectedSources.map(s => s.name));
 
       // Step 2: Attempt to fetch real articles via NewsAPI or RSS feeds.
@@ -39,7 +39,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const rankedArticles = await groqService.analyzeAndRankArticles(
         articlesToAnalyze,
         topics,
-        { region, country, excludedSources }
+        { region, country}
       );
 
       // Step 4: Store articles and return response
@@ -80,8 +80,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/news/sources", async (req, res) => {
     try {
-      const { topics, region, excludedSources } = req.body;
-      const sources = await groqService.selectNewsSources(topics, region, excludedSources);
+      const { topics, region} = req.body;
+      const sources = await groqService.selectNewsSources(topics, region);
       res.json({ sources });
     } catch (error) {
       console.error('Error getting sources:', error);
