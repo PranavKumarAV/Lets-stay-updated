@@ -31,23 +31,8 @@ class LLMService:
         self.models_ranked: List[str] = []
 
         if self.config:
-            provider_info = LLMManager.PROVIDERS.get(self.config.provider, {})
-            models_info = provider_info.get("models", {}) if provider_info else {}
-
-            preferred_order = [
-                "llama3-70b-8192",
-                "llama-3.1-8b-instant",
-                "mixtral-8x7b-32768",
-            ]
-            available_models = [m for m in preferred_order if m in models_info]
-            env_model = self.config.model
-            if env_model and env_model not in available_models and env_model in models_info:
-                available_models.insert(0, env_model)
-
-            seen = set()
-            self.models_ranked = [m for m in available_models if not (m in seen or seen.add(m))]
-
-            logger.info(f"LLM initialized with model fallback order: {self.models_ranked}")
+            self.models_ranked = [self.config.model]
+            logger.info(f"LLM initialized with model: {self.config.model}")
         else:
             logger.info("LLM initialized in disabled mode.")
 
@@ -67,7 +52,7 @@ class LLMService:
         session = await self._get_session()
         last_error: Optional[Exception] = None
 
-        for model_name in self.models_ranked or [self.config.model]:
+        for model_name in self.models_ranked:
             # Skip models in cooldown
             if model_name in LLMManager._exhausted_models:
                 if datetime.utcnow().timestamp() < LLMManager._exhausted_models[model_name]:
@@ -100,7 +85,13 @@ class LLMService:
                         error_text = await response.text()
                         logger.warning(f"{model_name} failed [{response.status}]: {error_text}")
                         if response.status == 429 or "quota" in error_text.lower():
-                            LLMManager._exhausted_models[model_name] = datetime.utcnow().timestamp() + 300
+                            LLMManager._exhausted_models[model_name] = datetime.utcnow().timestamp() + LLMManager.COOLDOWN_SECONDS
+                            try:
+                                self.config = LLMManager.get_available_config()
+                                self.models_ranked = [self.config.model]
+                                logger.info(f"Switched to backup model: {self.config.model}")
+                            except Exception as switch_error:
+                                logger.error(f"Failed to switch LLM model: {switch_error}")
                         last_error = Exception(f"LLM error {response.status}: {error_text}")
             except Exception as e:
                 logger.warning(f"{model_name} request failed: {e}")
@@ -118,7 +109,7 @@ class LLMService:
 
         system_prompt = (
             "You are a news curation expert. Recommend 5-8 top news sources for given topics and regions, "
-            "considering credibility, coverage, timeliness, and diversity. Output JSON as:\n"
+            "considering credibility, coverage, timeliness, and diversity. Respond ONLY in valid JSON format. Output JSON as:\n"
             "{\n"
             "  \"sources\": [\n"
             "    {\"name\": ..., \"type\": ..., \"relevanceScore\": ..., \"credibilityScore\": ..., \"reasoning\": ...}\n"
@@ -151,7 +142,7 @@ class LLMService:
 
         system_prompt = (
             "You are a news expert. Rank articles based on relevance, quality, timeliness, and source credibility.\n"
-            "Return: {\"articles\": [{title, content, url, source, topic, ai_score, published_at, reasoning, metadata}]}"
+            "Return ONLY valid JSON as: {\"articles\": [{title, content, url, source, topic, ai_score, published_at, reasoning, metadata}]}"
         )
 
         summary_articles = []
@@ -244,7 +235,6 @@ class LLMService:
             a["ai_score"] = min(score, 90)
             a["reasoning"] = "Keyword match fallback scoring"
         return sorted(articles, key=lambda x: x["ai_score"], reverse=True)
-
 
 # Global instance
 llm_service = LLMService()
