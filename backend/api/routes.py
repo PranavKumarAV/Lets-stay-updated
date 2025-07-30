@@ -145,44 +145,6 @@ async def generate_news(request: GenerateNewsRequest, background_tasks: Backgrou
             except Exception as e:
                 logger.error(f"Error fetching articles on attempt {attempt+1}: {e}")
                 continue
-            try:
-                # Use the unified fetch_articles API.  We pass a list of topics
-                # and the desired mode so the aggregator can route the
-                # request appropriately.  ``selected_sources`` is omitted
-                # because global/local modes do not rely on user-selected
-                # sources; the NewsAPI handles filtering internally.
-                raw_articles = await news_aggregator.fetch_articles(
-                    topic=transformed_topics,
-                    count=fetch_count,
-                    mode=mode,
-                    language=language,
-                    country=request.country
-                )
-            except Exception as e:
-                logger.error(f"Error fetching articles on attempt {attempt+1}: {e}")
-                continue
-            # Validate each article in the returned batch
-            # Maintain a set of seen titles (lowercase) to avoid duplicates
-            for article in raw_articles:
-                # Stop if we've reached our target
-                if len(valid_articles) >= desired_count:
-                    break
-                url = article.get("url", "")
-                title = (article.get("title") or "").strip().lower()
-                # Skip articles with missing URLs or titles, or duplicates
-                if not url or not title:
-                    continue
-                if any(existing.get("title", "").strip().lower() == title for existing in valid_articles):
-                    continue
-                # Filter out articles that do not mention the requested topics
-                # Use the transformed topics to improve recall (e.g. "AI" -> "artificial intelligence").
-                if not is_article_relevant(article, transformed_topics):
-                    continue
-                # Skip articles older than one week
-                if not is_recent_article(article):
-                    continue
-                if await is_url_valid(url):
-                    valid_articles.append(article)
 
         if not valid_articles:
             # No articles were collected even after exhausting the NewsAPI and RSS fallback.
