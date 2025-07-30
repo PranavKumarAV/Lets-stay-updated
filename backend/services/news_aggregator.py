@@ -278,7 +278,7 @@ class NewsAggregator:
         # Return up to twice the requested count to give AI more context
         return unique_articles[: count * 2]
 
-    async def _fetch_global_articles(self, topic: str, count: int, language: str = "en") -> List[Dict[str, Any]]:
+    async def _fetch_global_articles(self, topic: str, count: int, page: int = 1, language: str = "en") -> List[Dict[str, Any]]:
         """
         Fetch a list of articles for a given topic from the NewsAPI ``/v2/everything``
         endpoint.  This helper always sorts results by popularity and restricts
@@ -310,6 +310,7 @@ class NewsAggregator:
                 f"&from={from_date}"
                 f"&sortBy=popularity"
                 f"&pageSize={page_size}"
+                f"&page={page}"
                 f"&apiKey={key}"
             )
             try:
@@ -366,7 +367,7 @@ class NewsAggregator:
         unique.sort(key=lambda x: x.get("published_at", ""), reverse=True)
         return unique[:count]
 
-    async def _fetch_local_headlines(self, topic: str, count: int, country: Optional[str] = None, language: str = "en") -> List[Dict[str, Any]]:
+    async def _fetch_local_headlines(self, topic: str, count: int, page: int = 1, country: Optional[str] = None, language: str = "en") -> List[Dict[str, Any]]:
         """
         Fetch top headlines for a given topic from the NewsAPI ``/v2/top-headlines``
         endpoint.  Results are filtered by the supplied country code and
@@ -399,6 +400,7 @@ class NewsAggregator:
                 f"?country={country.upper()}"
                 f"&language={language}"
                 f"&pageSize={page_size}"
+                f"&page={page}"
                 f"{category_param}"
                 f"&q={aiohttp.helpers.quote(topic)}"
                 f"&apiKey={key}"
@@ -454,13 +456,15 @@ class NewsAggregator:
         unique.sort(key=lambda x: x.get("published_at", ""), reverse=True)
         return unique[:count]
 
-    async def fetch_articles(self,
-                             topic: Any,
-                             count: int = 10,
-                             mode: str = "global",
-                             language: str = "en",
-                             country: Optional[str] = None,
-                             sources: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
+    async def fetch_articles(
+        topic: Any,
+        count: int = 10,
+        page: int = 1,
+        mode: str = "global",
+        language: str = "en",
+        country: Optional[str] = None,
+        sources: Optional[List[Dict[str, Any]]] = None
+    ) -> List[Dict[str, Any]]:
         """
         Unified entry point for fetching news articles.  When a ``mode`` is
         provided (either ``global`` or ``local``), this method routes the
@@ -497,9 +501,9 @@ class NewsAggregator:
                 # For local mode we must have a country; skip if not provided
                 if not country:
                     continue
-                fetched = await self._fetch_local_headlines(t, count, country=country, language=language)
+                fetched = await self._fetch_local_headlines(t, count, page=page, country=country, language=language)
             else:
-                fetched = await self._fetch_global_articles(t, count, language=language)
+                fetched = await self._fetch_global_articles(t, count, page=page, language=language)
             collected.extend(fetched)
 
         # Remove duplicates by URL

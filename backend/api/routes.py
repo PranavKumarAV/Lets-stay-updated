@@ -107,26 +107,44 @@ async def generate_news(request: GenerateNewsRequest, background_tasks: Backgrou
         language = "en"
 
         # We'll loop a fixed number of times to accumulate enough articles.
+        seen_urls = set()
+        page = 1
+
         for attempt in range(max_attempts):
-            # Stop if we've collected enough articles
             if len(valid_articles) >= desired_count:
                 break
-            # Determine how many more articles we need.  Always request at
-            # least 1 article to avoid zero-length requests.  We also
-            # deliberately request a multiple of the remaining count to
-            # account for articles that will be discarded during
-            # relevance and recency filtering.  On the first attempt we
-            # fetch a large multiple of the desired count to seed the
-            # pool; on subsequent attempts we fetch a multiple of the
-            # remaining count.
+
             remaining = desired_count - len(valid_articles)
-            # For the first attempt, request 3× the desired_count; for
-            # subsequent attempts, request 2× the remaining count.  The
-            # multiplier can be tuned based on typical drop-off rates.
-            if attempt == 0:
-                fetch_count = max(1, desired_count * 3)
-            else:
-                fetch_count = max(1, remaining * 2)
+            fetch_count = max(1, desired_count * 3) if attempt == 0 else max(1, remaining * 2)
+
+            try:
+                raw_articles = await news_aggregator.fetch_articles(
+                    topic=transformed_topics,
+                    count=fetch_count,
+                    page=page,
+                    mode=mode,
+                    language=language,
+                    country=request.country
+                )
+                page += 1  # next page on next attempt
+
+                for article in raw_articles:
+                    if len(valid_articles) >= desired_count:
+                        break
+                    url = article.get("url", "")
+                    if not url or url in seen_urls:
+                        continue
+                    seen_urls.add(url)
+
+                    if not is_article_relevant(article, transformed_topics):
+                        continue
+                    if not is_recent_article(article):
+                        continue
+                    if await is_url_valid(url):
+                        valid_articles.append(article)
+            except Exception as e:
+                logger.error(f"Error fetching articles on attempt {attempt+1}: {e}")
+                continue
             try:
                 # Use the unified fetch_articles API.  We pass a list of topics
                 # and the desired mode so the aggregator can route the
