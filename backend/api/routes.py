@@ -119,7 +119,7 @@ async def generate_news(request: GenerateNewsRequest, background_tasks: Backgrou
 
             try:
                 raw_articles = await news_aggregator.fetch_articles(
-                    topic=transformed_topics,
+                    transformed_topics,
                     count=fetch_count,
                     page=page,
                     mode=mode,
