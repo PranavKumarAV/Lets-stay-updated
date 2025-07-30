@@ -456,15 +456,14 @@ class NewsAggregator:
         unique.sort(key=lambda x: x.get("published_at", ""), reverse=True)
         return unique[:count]
 
-    async def fetch_articles(
+    async def fetch_articles(self,
         topic: Any,
         count: int = 10,
         page: int = 1,
         mode: str = "global",
         language: str = "en",
         country: Optional[str] = None,
-        sources: Optional[List[Dict[str, Any]]] = None
-    ) -> List[Dict[str, Any]]:
+        sources: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
         """
         Unified entry point for fetching news articles.  When a ``mode`` is
         provided (either ``global`` or ``local``), this method routes the
