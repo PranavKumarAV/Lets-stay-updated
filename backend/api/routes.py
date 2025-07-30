@@ -136,9 +136,9 @@ async def generate_news(request: GenerateNewsRequest, background_tasks: Backgrou
                         continue
                     seen_urls.add(url)
 
-                    if not is_article_relevant(article, transformed_topics):
-                        continue
-                    if not is_recent_article(article):
+                    # if not is_article_relevant(article, transformed_topics):      # Currently not needed as we are obtaining article based on key word
+                    #     continue
+                    if not is_recent_article(article):            
                         continue
                     if await is_url_valid(url):
                         valid_articles.append(article)

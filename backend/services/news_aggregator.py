@@ -55,16 +55,13 @@ class NewsAggregator:
             "Screen International": "https://screendaily.com/45202.rss",
 
             # Additional entertainment and general outlets
-            "Entertainment Weekly": "https://ew.com/feed",
             "E! News": "https://www.eonline.com/syndication/feeds/rssfeeds/topstories.xml",
 
             # Business outlets
-            "Business Insider": "https://www.businessinsider.com/us/rss",
             "CNBC": "https://www.cnbc.com/id/100003114/device/rss/rss.html",
             "BBC Business": "https://feeds.bbci.co.uk/news/business/rss.xml",
             "Forbes": "https://www.forbes.com/business/feed",
             "Financial Times": "https://www.ft.com/?edition=international&format=rss",
-            "Bloomberg": "https://www.bloomberg.com/feed/podcast.xml",
 
             # General news outlets
             "CNN": "http://rss.cnn.com/rss/edition.rss",
@@ -79,8 +76,6 @@ class NewsAggregator:
             "BBC Sport": "http://feeds.bbci.co.uk/sport/rss.xml",
 
             # Health outlets
-            "Healthline": "https://www.healthline.com/rss",
-            "Medical News Today": "https://www.medicalnewstoday.com/rss",
 
             # Technology and science outlets
             # These feeds were sourced from publicly available RSS listings.
@@ -100,9 +95,6 @@ class NewsAggregator:
             "Science Magazine": "https://www.sciencemag.org/rss/news_current.xml",
         }
 
-        # Mock article templates and author lists retained for fallback mode
-        # (when no NEWS_API_KEY is configured).  These will be used to
-        # generate placeholder articles if real news cannot be fetched.
 
         self.authors = {
             "reddit": [
@@ -524,7 +516,7 @@ class NewsAggregator:
         # resulting articles will still be filtered by topics_list and
         # deduplicated.  RSS parsing may be slower, so this block is
         # executed only when the API yields no content.
-        if not unique_articles:
+        if not unique_articles and mode == 'global':    # Current RSS not valid for local search
             try:
                 # Build a generic sources list for RSS based on all known feeds
                 rss_sources = [{"name": name} for name in self.rss_feed_map.keys()]
@@ -539,7 +531,7 @@ class NewsAggregator:
                 seen_rss = set()
                 deduped_rss: List[Dict[str, Any]] = []
                 for art in rss_articles:
-                    url = art.get("url")
+                    url = art.get("link")
                     if not url or url in seen_rss:
                         continue
                     seen_rss.add(url)
