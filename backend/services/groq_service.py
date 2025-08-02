@@ -161,6 +161,7 @@ Return JSON format:
                         article['ai_score'] = analysis.get('aiScore', 70)
                         article['topic'] = analysis.get('topicMatch', topics[0])
                         article['ai_reasoning'] = analysis.get('reasoning', '')
+                        article['url'] = batch[analysis['originalIndex']].get('url', 'N/A')
                         ranked_articles.append(article)
             
             # Sort by AI score
