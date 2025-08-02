@@ -362,14 +362,14 @@ class NewsAggregator:
                 continue
             url = (
                 "https://newsapi.org/v2/top-headlines"
-                f"?country={country.upper()}"
-                f"&language={language}"
+                f"?country={country.lower()}"
                 f"&pageSize={page_size}"
                 f"&page={page}"
                 f"{category_param}"
                 f"&q={aiohttp.helpers.quote(topic)}"
                 f"&apiKey={key}"
             )
+            logger.warning(f"Test - {url}")
             try:
                 logger.warning(f"Test - Trying articles")
                 async with aiohttp.ClientSession() as session:
