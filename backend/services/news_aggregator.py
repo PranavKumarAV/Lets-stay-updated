@@ -348,12 +348,10 @@ class NewsAggregator:
             return []
         # Derive a NewsAPI category from the topic using the existing helper.
         derived_category = self._get_topic_category(topic)
-        logger.warning(f"Test - {derived_category}")
         valid_categories = {"business", "entertainment", "general", "health", "science", "sports", "technology"}
         category_param = ""
         if derived_category.lower() in valid_categories:
             category_param = f"&category={aiohttp.helpers.quote(derived_category.lower())}"
-            logger.warning(f"Test - {category_param}")
         page_size = max(1, min(count * 2, 100))
         all_articles: List[Dict[str, Any]] = []
         encountered_rate_limit = True

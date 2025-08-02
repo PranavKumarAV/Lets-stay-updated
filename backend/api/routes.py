@@ -132,6 +132,7 @@ async def generate_news(request: GenerateNewsRequest, background_tasks: Backgrou
                     if len(valid_articles) >= desired_count:
                         break
                     url = article.get("url", "")
+                    logger.warning(f"Test - {url}")
                     if not url or url in seen_urls:
                         continue
                     seen_urls.add(url)
@@ -142,6 +143,7 @@ async def generate_news(request: GenerateNewsRequest, background_tasks: Backgrou
                         continue
                     if await is_url_valid(url):
                         valid_articles.append(article)
+                    logger.warning(f"Test - {valid_articles}")
             except Exception as e:
                 logger.error(f"Error fetching articles on attempt {attempt+1}: {e}")
                 continue
