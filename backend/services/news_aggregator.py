@@ -384,13 +384,18 @@ class NewsAggregator:
                             logger.warning(f"NewsAPI /v2/top-headlines responded with status {resp.status}: {text}")
                             break
                         data = await resp.json()
+                        logger.warning(f"Test - {data}")
                         for item in data.get("articles", []):
                             published_at = item.get("publishedAt") or datetime.utcnow().isoformat()
+                            logger.warning(f"Test - {published_at}")
                             try:
                                 published_dt = datetime.fromisoformat(published_at.rstrip("Z"))
+                                logger.warning(f"Test - {published_dt}")
                             except Exception:
                                 published_dt = datetime.utcnow()
+                                logger.warning(f"Test - {published_dt}")
                             if published_dt < datetime.utcnow() - timedelta(days=7):
+                                logger.warning(f"Test - Inside continue")
                                 continue
                             all_articles.append({
                                 "title": item.get("title", ""),
