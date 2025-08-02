@@ -132,7 +132,7 @@ async def generate_news(request: GenerateNewsRequest, background_tasks: Backgrou
                     if len(valid_articles) >= desired_count:
                         break
                     url = article.get("url", "")
-                    logger.warning(f"Test - {url}")
+
                     if not url or url in seen_urls:
                         continue
                     seen_urls.add(url)
@@ -169,7 +169,6 @@ async def generate_news(request: GenerateNewsRequest, background_tasks: Backgrou
                 "country": request.country,
             }
         )
-        logger.warning(f"Test - {ranked_articles}")
 
         # Step 4: Generate summaries and store top articles in database
         stored_articles = []
@@ -204,8 +203,7 @@ async def generate_news(request: GenerateNewsRequest, background_tasks: Backgrou
                     "published_at": article["published_at"],
                     "metadata": metadata
                 })
-                test_url = article["url"]
-                logger.warning(f"Test - {test_url}")
+
                 stored_articles.append(stored_article)
             except Exception as e:
                 logger.error(f"Error storing article: {e}")

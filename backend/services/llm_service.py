@@ -141,7 +141,6 @@ class LLMService:
             logger.warning("No API key: falling back to heuristic article ranking.")
             return self._fallback_scoring(articles, topics)
 
-        logger.warning(f"Test - inside function")
         system_prompt = (
             "You are a news expert. Rank the following articles based on their relevance to user topics, quality, recency, and credibility.\n"
             "For each article, provide:\n"
@@ -168,7 +167,6 @@ class LLMService:
                 "published_at": a.get("published_at", ""),
                 "url": a.get("url", "N/A")
             })
-            logger.warning(f"Test - {summary_articles}")
 
         user_prompt = (
             f"Topics: {', '.join(topics)}\n"
@@ -196,7 +194,6 @@ class LLMService:
                     # Ensure original URL is preserved (if overwritten)
                     merged["url"] = original.get("url", r.get("url", "N/A"))
                     final.append(merged)
-                    logger.warning(f"Test - {merged}")
 
             return sorted(final, key=lambda x: x.get("ai_score", 0), reverse=True)
 
