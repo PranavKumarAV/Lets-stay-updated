@@ -121,10 +121,11 @@ ARTICLES TO ANALYZE:
 {json.dumps([{
     'index': idx,
     'title': article['title'],
-    'content': article['content'][:300] + '...',
+    'content': (article.get('content') or '')[:300] + '...',
     'source': article['source'],
+    'url': article.get('url', 'N/A'),
     'topic': article.get('topic', topics[0])
-} for idx, article in enumerate(batch)], indent=2)}
+} for idx, article in enumerate(articles[i:i + batch_size], start=i)], indent=2)}
 
 For each article, provide:
 - originalIndex: the index from the input
@@ -135,7 +136,7 @@ For each article, provide:
 Consider factors:
 - Relevance to user topics
 - Article recency and timeliness
-- Source credibility
+- Source credibility (e.g., based on domain in URL)
 - Content quality and depth
 - Factual accuracy indicators
 
