@@ -366,7 +366,6 @@ class NewsAggregator:
                 f"&pageSize={page_size}"
                 f"&page={page}"
                 f"{category_param}"
-                f"&q={aiohttp.helpers.quote(topic)}"
                 f"&apiKey={key}"
             )
             logger.warning(f"Test - {url}")
