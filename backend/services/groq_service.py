@@ -103,7 +103,7 @@ Return exactly 8-12 diverse sources as JSON:
         """Analyze and rank articles using Groq AI"""
         if not self.client or not articles:
             return self._apply_fallback_ranking(articles, topics)
-        
+        logger.warning(f"Test - inside function")
         try:
             # Process articles in batches to avoid token limits
             batch_size = 10
@@ -151,9 +151,12 @@ Return JSON format:
                 )
 
                 content = response.choices[0].message.content
+                logger.warning(f"Test - {content}")
                 # Repair and decode the JSON returned by the model
                 result = _json_repair.loads(content)
+                logger.warning(f"Test - {result}")
                 
+                logger.warning(f"Test - outside")
                 # Apply AI scores to batch
                 for analysis in result.get('rankedArticles', []):
                     if analysis['originalIndex'] < len(batch):
