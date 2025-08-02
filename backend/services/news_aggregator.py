@@ -403,7 +403,8 @@ class NewsAggregator:
                                     "source_name": item.get("source", {}).get("name"),
                                 },
                             })
-                            logger.warning(f"Test - {item.get("url", "")}")
+                            testing_url = item.get("url", "")
+                            logger.warning(f"Test - {testing_url}")
                         break
             except Exception as e:
                 logger.error(f"Error fetching local headlines with key {key}: {e}")
