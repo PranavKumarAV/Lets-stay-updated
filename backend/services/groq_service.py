@@ -158,6 +158,7 @@ Return JSON format:
                 for analysis in result.get('rankedArticles', []):
                     if analysis['originalIndex'] < len(batch):
                         article = batch[analysis['originalIndex']].copy()
+                        logger.warning(f"Test - {article}")
                         article['ai_score'] = analysis.get('aiScore', 70)
                         article['topic'] = analysis.get('topicMatch', topics[0])
                         article['ai_reasoning'] = analysis.get('reasoning', '')
