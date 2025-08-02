@@ -95,35 +95,6 @@ class NewsAggregator:
             "Science Magazine": "https://www.sciencemag.org/rss/news_current.xml",
         }
 
-
-        self.authors = {
-            "reddit": [
-                "u/newsreporter",
-                "u/politicsexpert",
-                "u/sportswriter",
-                "u/techguru"
-            ],
-            "substack": [
-                "Sarah Chen",
-                "David Rodriguez",
-                "Emily Watson",
-                "Michael Thompson",
-                "Lisa Chang"
-            ],
-            "traditional": [
-                "Reuters Staff",
-                "AP Reporter",
-                "BBC Correspondent",
-                "Guardian Writer",
-                "NPR Correspondent"
-            ],
-            "newspaper": [
-                "Guardian Reporter",
-                "Independent Journalist",
-                "Digital Correspondent"
-            ],
-        }
-
         # Track whether the NewsAPI has responded with a rate‑limit error.
         # When this flag is true, subsequent requests to the NewsAPI will be
         # skipped for the remainder of the process to avoid repeated 429
@@ -377,10 +348,12 @@ class NewsAggregator:
             return []
         # Derive a NewsAPI category from the topic using the existing helper.
         derived_category = self._get_topic_category(topic)
+        logger.warning(f"Test - {derived_category}")
         valid_categories = {"business", "entertainment", "general", "health", "science", "sports", "technology"}
         category_param = ""
-        if derived_category and derived_category.lower() in valid_categories:
+        if derived_category.lower() in valid_categories:
             category_param = f"&category={aiohttp.helpers.quote(derived_category.lower())}"
+            logger.warning(f"Test - {category_param}")
         page_size = max(1, min(count * 2, 100))
         all_articles: List[Dict[str, Any]] = []
         encountered_rate_limit = True
@@ -398,6 +371,7 @@ class NewsAggregator:
                 f"&apiKey={key}"
             )
             try:
+                logger.warning(f"Test - Trying articles")
                 async with aiohttp.ClientSession() as session:
                     async with session.get(url) as resp:
                         if resp.status == 429:
