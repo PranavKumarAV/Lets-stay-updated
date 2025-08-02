@@ -362,15 +362,14 @@ class NewsAggregator:
                 continue
             url = (
                 "https://newsapi.org/v2/top-headlines"
-                f"?country={country.lower()}"
+                f"?country={country.upper()}"
+                f"&language=en"
                 f"&pageSize={page_size}"
                 f"&page={page}"
                 f"{category_param}"
                 f"&apiKey={key}"
             )
-            logger.warning(f"Test - {url}")
             try:
-                logger.warning(f"Test - Trying articles")
                 async with aiohttp.ClientSession() as session:
                     async with session.get(url) as resp:
                         if resp.status == 429:
@@ -383,18 +382,15 @@ class NewsAggregator:
                             logger.warning(f"NewsAPI /v2/top-headlines responded with status {resp.status}: {text}")
                             break
                         data = await resp.json()
-                        logger.warning(f"Test - {data}")
                         for item in data.get("articles", []):
                             published_at = item.get("publishedAt") or datetime.utcnow().isoformat()
-                            logger.warning(f"Test - {published_at}")
+                            logger.warning(f"Test - {data}")
                             try:
                                 published_dt = datetime.fromisoformat(published_at.rstrip("Z"))
-                                logger.warning(f"Test - {published_dt}")
+                                logger.warning(f"Test - {data}")
                             except Exception:
                                 published_dt = datetime.utcnow()
-                                logger.warning(f"Test - {published_dt}")
                             if published_dt < datetime.utcnow() - timedelta(days=7):
-                                logger.warning(f"Test - Inside continue")
                                 continue
                             all_articles.append({
                                 "title": item.get("title", ""),
@@ -407,6 +403,7 @@ class NewsAggregator:
                                     "source_name": item.get("source", {}).get("name"),
                                 },
                             })
+                            logger.warning(f"Test - {item.get("url", "")}")
                         break
             except Exception as e:
                 logger.error(f"Error fetching local headlines with key {key}: {e}")
