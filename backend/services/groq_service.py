@@ -140,7 +140,7 @@ Consider factors:
 - Factual accuracy indicators
 
 Return JSON format:
-{{"rankedArticles": [{{"originalIndex": 0, "aiScore": 95, "reasoning": "explanation", "topicMatch": "topic name"}}]}}"""
+{{"rankedArticles": [{{"originalIndex": index from input, "aiScore": measured score, "reasoning": "explanation", "topicMatch": "topic name"}}]}}"""
 
                 response = self.client.chat.completions.create(
                     model=settings.DEFAULT_MODEL,
