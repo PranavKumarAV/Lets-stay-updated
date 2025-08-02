@@ -384,10 +384,8 @@ class NewsAggregator:
                         data = await resp.json()
                         for item in data.get("articles", []):
                             published_at = item.get("publishedAt") or datetime.utcnow().isoformat()
-                            logger.warning(f"Test - {data}")
                             try:
                                 published_dt = datetime.fromisoformat(published_at.rstrip("Z"))
-                                logger.warning(f"Test - {data}")
                             except Exception:
                                 published_dt = datetime.utcnow()
                             if published_dt < datetime.utcnow() - timedelta(days=7):
