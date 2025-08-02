@@ -136,25 +136,39 @@ class LLMService:
     async def analyze_and_rank_articles(self, articles: List[Dict[str, Any]], topics: List[str], preferences: Dict[str, Any]) -> List[Dict[str, Any]]:
         if not articles or not topics:
             return self._fallback_scoring(articles, topics)
+
         if not self.config or not self.config.api_key:
             logger.warning("No API key: falling back to heuristic article ranking.")
             return self._fallback_scoring(articles, topics)
 
+        logger.warning(f"Test - inside function")
         system_prompt = (
-            "You are a news expert. Rank articles based on relevance, quality, timeliness, and source credibility.\n"
-            "Return ONLY valid JSON as: {\"articles\": [{title, content, url, source, topic, ai_score, published_at, reasoning, metadata}]}"
+            "You are a news expert. Rank the following articles based on their relevance to user topics, quality, recency, and credibility.\n"
+            "For each article, provide:\n"
+            "- ai_score: a value from 1–100\n"
+            "- reasoning: a short explanation\n"
+            "- topic: the matched topic\n\n"
+            "Return ONLY valid JSON in the following format:\n"
+            "{ \"articles\": [ {\"id\": number, \"ai_score\": number, \"reasoning\": string, \"topic\": string} ] }"
         )
 
         summary_articles = []
+        article_map = {}
+
         for i, a in enumerate(articles[:20]):
-            summary = a.get("content", "")[:200] + "..." if len(a.get("content", "")) > 200 else a.get("content", "")
+            content = a.get("content", "")
+            summary = content[:200] + "..." if len(content) > 200 else content
+
+            article_map[i] = a  # Track original by ID
             summary_articles.append({
                 "id": i,
                 "title": a.get("title", ""),
                 "content": summary,
                 "source": a.get("source", ""),
-                "published_at": a.get("published_at", "")
+                "published_at": a.get("published_at", ""),
+                "url": a.get("url", "N/A")
             })
+            logger.warning(f"Test - {summary_articles}")
 
         user_prompt = (
             f"Topics: {', '.join(topics)}\n"
@@ -176,11 +190,16 @@ class LLMService:
 
             final = []
             for r in ranked:
-                original = next((a for a in articles if a.get("title") == r.get("title")), None)
+                original = article_map.get(r.get("id"))
                 if original:
                     merged = {**original, **r}
+                    # Ensure original URL is preserved (if overwritten)
+                    merged["url"] = original.get("url", r.get("url", "N/A"))
                     final.append(merged)
+                    logger.warning(f"Test - {merged}")
+
             return sorted(final, key=lambda x: x.get("ai_score", 0), reverse=True)
+
         except Exception as e:
             logger.error(f"LLM failed to rank articles: {e}")
             return self._fallback_scoring(articles, topics)
