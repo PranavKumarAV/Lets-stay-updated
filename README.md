@@ -1,156 +1,185 @@
 # Let's Stay Updated - AI-Powered News Curation
 
-An intelligent news aggregation platform that uses AI to select, analyze, and rank news articles from various sources based on your preferences. Built with modern technologies and **FREE AI models** for cost-effective deployment.
+An intelligent news aggregation platform that uses AI to analyze and rank news articles from various sources. Built with modern technologies and open-source AI models (served via the free-tier Groq API) for cost-effective deployment.
+
+A screen recording and screenshot of the website are included in the `Working_video_images` folder for reference.
+
+![App Screenshot](./Working_video_images/Working_Screenshot.png)
+
+---
+
+## 📚 Table of Contents
+
+- [Features](#features)
+- [Technology Stack](#technology-stack)
+- [Environment Variables](#environment-variables)
+- [Installation and Setup](#installation-and-setup)
+- [Deployment on Render.com](#deployment-on-rendercom)
+- [API Endpoints](#api-endpoints)
+- [Usage](#usage)
+- [AI Features](#ai-features)
+- [Room for Improvement](#room-for-improvement)
+- [License](#license)
+
+---
 
 ## Features
 
-- **AI-Powered Source Selection**: Intelligent selection of news sources using **Groq's FREE API**
-- **Smart Article Ranking**: AI analyzes and ranks articles by relevance, credibility, and quality
-- **Multi-Step Configuration**: Easy-to-use wizard for setting up your preferences
-- **Flexible Topic Selection**: Choose from popular categories or create custom topics
-- **Source Exclusion**: Option to exclude specific news sources you don't want
-- **Real-time Curation**: Get fresh, AI-curated news feeds on demand
-- **Cost-Effective**: Uses FREE Groq API with generous limits (30 req/min, 1M tokens/hour)
+- **Smart Article Ranking**: AI analyzes and ranks articles by relevance, credibility, and quality  
+- **Flexible Topic Selection**: Choose from popular categories or create custom topics  
+- **Real-time Curation**: Get fresh, AI-curated news feeds on demand  
+- **Cost-Effective**: Uses the free Groq API with generous limits (30 req/min, 1M tokens/hour)  
+- **News Aggregation**: Pulls articles from multiple sources using News API  
+
+---
 
 ## Technology Stack
 
 ### Frontend
-- **React 18** with TypeScript
-- **Wouter** for routing
-- **TanStack React Query** for state management
-- **Radix UI** + **shadcn/ui** for components
-- **Tailwind CSS** for styling
-- **Vite** for build tooling
+
+- **React 18** with TypeScript  
+- **Wouter** for routing  
+- **TanStack React Query** for state management  
+- **Radix UI** for accessible components  
+- **Tailwind CSS** for styling  
+- **Vite** for build tooling  
 
 ### Backend
-- **FastAPI** with Python 3.11+ (ultra-fast async API)
-- **Groq API** for FREE AI processing (Llama 3 70B model)
-- **SQLite** for lightweight database (PostgreSQL supported)
-- **Pydantic** for data validation
+
+- **FastAPI** (Python 3.11+) for ultra-fast async API  
+- **Groq API** for LLM-based AI processing (LLaMA 3 70B model)  
+- **SQLite** (default) with optional PostgreSQL support  
+- **Pydantic** for data validation  
+
+---
 
 ## Environment Variables
 
 Create a `.env` file with the following variables:
 
 ```env
-# Required: Groq API Key for FREE AI features
+# Required: Groq API Key for free AI features
 GROQ_API_KEY=your_groq_api_key_here
 
-# Optional: Database connection (uses SQLite if not provided)
+# Required: News API keys (supports multiple for fallback)
+NEWS_API_KEY=your_news_api_key_here
+NEWS_API_KEY_1=your_news_api_key_1   # additional key to avoid free-tier limits
+NEWS_API_KEY_2=your_news_api_key_2   # another fallback key
+
+# Optional: Database connection (SQLite by default)
 DATABASE_URL=sqlite:///./news_app.db
 
-# Optional: Application port (defaults to 5000)
+# Optional: Application port (default: 5000)
 PORT=5000
 
-# Environment
+# Environment settings
 ENVIRONMENT=production
+LLM_PROVIDER=groq
 ```
 
-### Getting Your FREE Groq API Key:
-1. Go to https://console.groq.com/
+### Getting Your Free Groq API Key
+
+```text
+1. Visit https://console.groq.com
 2. Sign up for a free account
 3. Create an API key in the console
-4. Get 30 requests/minute and 1M tokens/hour for FREE!
+```
+
+---
 
 ## Installation and Setup
 
-1. **Clone the repository**
-   ```bash
-   git clone <your-repo-url>
-   cd news-curation-app
-   ```
+### Clone the Repository
 
-2. **Install dependencies**
-   ```bash
-   npm install
-   ```
-
-3. **Set up environment variables**
-   ```bash
-   cp .env.example .env
-   # Edit .env with your API keys
-   ```
-
-4. **Build the application**
-   ```bash
-   npm run build
-   ```
-
-5. **Start the production server**
-   ```bash
-   npm start
-   ```
-
-For development:
 ```bash
-npm run dev
+git clone https://github.com/PranavKumarAV/Lets-stay-updated
+cd Lets-stay-updated
 ```
+
+### Local Setup with Docker
+
+```bash
+# Build the Docker image
+docker build -t lets-stay-updated .
+
+# Run the container with your environment variables
+docker run -p 5000:5000 --env-file .env lets-stay-updated
+```
+
+---
 
 ## Deployment on Render.com
 
-### Option 1: Using render.yaml (Recommended)
+### Option 1: One-Click Deploy Using `render.yaml` (Recommended)
 
-1. **Connect your repository** to Render.com
-2. **Add environment variables** in the Render dashboard:
-   - `OPENAI_API_KEY`: Your OpenAI API key
-   - `NODE_ENV`: `production`
-3. **Deploy** - Render will automatically use the `render.yaml` configuration
-
-### Option 2: Manual Setup
-
-1. **Create a new Web Service** on Render.com
-2. **Connect your GitHub repository**
-3. **Configure the service**:
-   - **Build Command**: `npm install && npm run build`
-   - **Start Command**: `npm start`
-   - **Node Version**: 20
-   - **Health Check Path**: `/health`
-4. **Add environment variables**:
-   - `OPENAI_API_KEY`
-   - `NODE_ENV=production`
-5. **Deploy**
-
-### Option 3: Docker Deployment
-
-Use the included `Dockerfile`:
-
-```bash
-# Build the image
-docker build -t news-curation-app .
-
-# Run the container
-docker run -p 5000:5000 \
-  -e OPENAI_API_KEY=your_key_here \
-  -e NODE_ENV=production \
-  news-curation-app
+```text
+1. Connect your GitHub repository to Render
+2. The render.yaml file is included in the root directory of this repo.
+   Render uses it to auto-deploy the app with pre-configured settings.
+3. Add the following environment variables in the Render dashboard:
+   - GROQ_API_KEY: Your Groq API key
+   - NODE_ENV: production
+   - DATABASE_URL: Optional, use default for SQLite
+   - LLM_PROVIDER: groq
+   - NEWS_API_KEY: Primary News API key
+   - NEWS_API_KEY_1: Backup News API key
+   - NEWS_API_KEY_2: Another backup News API key
+4. Deploy – Render will build and launch your app using Docker.
 ```
+
+> **Note**: The News API free tier has request/day limits. Use multiple keys for fallback and higher availability.
+
+### Option 2: Manual Web Service Setup on Render
+
+```text
+1. Create a new Web Service on Render
+2. Connect your GitHub repository
+3. Set Dockerfile Path: Dockerfile (default path in root directory)
+4. Add environment variables (same as in Option 1)
+5. Deploy
+```
+
+---
 
 ## API Endpoints
 
-- `GET /health` - Health check endpoint
-- `POST /api/news/generate` - Generate curated news feed
-- `POST /api/news/sources` - Get recommended news sources
-- `GET /api/news/articles` - Get cached articles
-- `POST /api/news/cleanup` - Clean up old articles
+- `GET /health` – Health check  
+- `POST /api/news/generate` – Generate AI-curated news feed  
+- `POST /api/news/sources` – Get recommended sources  
+- `GET /api/news/articles` – Fetch cached articles  
+- `POST /api/news/cleanup` – Clean up old cached articles  
+
+---
 
 ## Usage
 
-1. **Choose Region**: Select international news or country-specific coverage
-2. **Select Topics**: Pick from popular categories (Politics, Sports, AI, Movies) or create custom topics
-3. **Configure Sources**: Choose article count (5-50) and optionally exclude specific sources
-4. **Get Results**: AI generates your personalized news feed with relevance scores
+```text
+1. Choose Region: Select international or region-specific news
+2. Select Topics: Choose from Politics, Sports, AI, Movies, or add custom topics
+3. Configure Sources: Select number of articles (5–15)
+4. Get Results: AI scores and returns the most relevant, credible news
+```
+
+---
 
 ## AI Features
 
-- **Intelligent Source Selection**: AI analyzes your topics and region to recommend the most relevant news sources
-- **Content Analysis**: Each article is scored for relevance, credibility, and quality
-- **Personalized Ranking**: Articles are ranked based on your specific interests and preferences
-- **Quality Filtering**: Only high-quality, credible articles make it to your feed
+- **Smart Source Selection**: LLM evaluates best sources for your region and topics  
+- **Content Scoring**: Each article is ranked by relevance, quality, and credibility  
+- **Personalized Feeds**: Tailored news based on your preferences  
+- **Quality Control**: Only high-quality articles are shown  
+
+---
+
+## Room for Improvement
+
+- **LLM-generated sources**: Auto-fetch via RSS instead of NewsAPI (partially implemented)  
+- **Mobile App**: A cross-platform companion app  
+- **Email Integration**: Scheduled delivery of news via email  
+- **Behavioral Personalization**: Learn user interests over time for smarter curation  
+
+---
 
 ## License
 
-MIT License - see LICENSE file for details
-
-## Support
-
-For issues and questions, please check the documentation or contact support.
+This project is licensed under the [MIT License](./LICENSE).

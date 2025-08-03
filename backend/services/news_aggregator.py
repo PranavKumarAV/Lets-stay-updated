@@ -269,7 +269,7 @@ class NewsAggregator:
             url = (
                 "https://newsapi.org/v2/everything"
                 f"?q={aiohttp.helpers.quote(topic)}"
-                f"&language={language}"
+                f"&language=en"
                 f"&from={from_date}"
                 f"&sortBy=popularity"
                 f"&pageSize={page_size}"
